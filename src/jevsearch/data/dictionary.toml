@@ -1,0 +1,45 @@
+# 用語辞書。検索語の表記ゆれをそろえ、英語表記があれば英語の検索語も作る。
+# canonical: そろえた言い方（見出し語）／ aliases: 別名（この言い方が来たら canonical に置き換える）
+# en: 英語表記（省略可。あれば英語の検索語に使う）
+# 辞書を変えたら version を改める（記録に残り、変えた前後で結果を比べられる）。
+version = "2026-11-03.1"
+
+[[terms]]
+canonical = "サーバー"
+aliases = ["サーバ"]
+en = "server"
+
+[[terms]]
+canonical = "ユーザー"
+aliases = ["ユーザ"]
+en = "user"
+
+[[terms]]
+canonical = "メタ検索"
+aliases = ["メタサーチ"]
+en = "metasearch"
+
+[[terms]]
+canonical = "検索エンジン"
+aliases = ["サーチエンジン"]
+en = "search engine"
+
+[[terms]]
+canonical = "コンピューター"
+aliases = ["コンピュータ"]
+en = "computer"
+
+[[terms]]
+canonical = "ブラウザー"
+aliases = ["ブラウザ"]
+en = "browser"
+
+[[terms]]
+canonical = "インターフェース"
+aliases = ["インタフェース", "インターフェイス"]
+en = "interface"
+
+[[terms]]
+canonical = "データベース"
+aliases = ["DB"]
+en = "database"
