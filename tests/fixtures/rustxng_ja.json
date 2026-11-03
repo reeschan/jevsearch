@@ -1,0 +1,36 @@
+{
+  "_note": "合成。本物の RustXNG の応答を録ったら差し替える。結果3件と unresponsive_engines 1件。2件目の URL は rustxng_en.json の1件目と同じ。余計なキー（score・category など）を含む。",
+  "query": "量子コンピュータ 入門",
+  "number_of_results": 3,
+  "results": [
+    {
+      "url": "https://example.org/ja/quantum-intro",
+      "title": "量子コンピュータ入門",
+      "content": "量子ビットの基本を説明する。",
+      "engine": "wikipedia",
+      "publishedDate": "2026-05-01T00:00:00",
+      "score": 3.5,
+      "category": "general",
+      "positions": [1]
+    },
+    {
+      "url": "https://example.org/shared/quantum-paper",
+      "title": "量子誤り訂正の論文",
+      "content": "誤り訂正符号の概説。",
+      "engine": "arxiv",
+      "publishedDate": null,
+      "score": 2.0,
+      "category": "science"
+    },
+    {
+      "url": "https://example.org/ja/quantum-blog",
+      "title": "量子コンピュータを触ってみた",
+      "engine": "mwmbl",
+      "score": 1.0
+    }
+  ],
+  "answers": [],
+  "infoboxes": [],
+  "suggestions": ["量子コンピュータ 仕組み"],
+  "unresponsive_engines": [["mwmbl_slow", "timeout"]]
+}
