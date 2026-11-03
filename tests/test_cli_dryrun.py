@@ -136,7 +136,7 @@ def test_blank_query_is_usage_error(tmp_path, query):
 
 def test_config_with_api_key_is_error(tmp_path):
     deps = _deps()
-    cfg = _config(tmp_path, '[jev]\napi_key = "sk-test-SENTINEL-0000"\n')
+    cfg = _config(tmp_path, '[jev]\napi_key = "sk-test-SENTINEL-0000"\n')  # check-secrets: ignore
     code, out, err = _run(["search", "abc", "--dry-run", "--config", str(cfg)], deps)
     assert code == 2
     assert out == ""

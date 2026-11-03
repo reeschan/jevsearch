@@ -9,12 +9,17 @@
 引数でファイルを渡したときは、そのファイルを作業ツリーから読む。
 見つけたら `<パス>:<行番号>: <種類>` を標準エラーに出して終了コード 1 にする。
 値そのものは出さない。標準ライブラリだけで動く。
+引数なしのとき、ステージ済みのファイルの一覧や内容を git から取れなければ、
+何も調べずに通すことはせず、1行の説明を標準エラーに出して終了コード 2 にする。
 
 調べる種類:
   - ファイル名: 認証ファイル・環境変数ファイル
     （例の `.env.example` は除く。大文字小文字は区別しない）
   - 環境変数名への代入: 名前に空でない値を代入している行（`os.environ[...] = "値"` も含む）
-  - JSON 風の `api_key`: 空でない文字列の値がある行
+  - 環境変数名と値を渡す呼び出し: `setenv("名前", "値")`・`setdefault(...)`・`putenv(...)` など、
+    名前のあとに文字列の値が続く形（`get`・`getenv` の既定値は除く）
+  - `api_key` の値: JSON 風の `"api_key"` の文字列の値、キーワード引数や代入
+    （Python・TOML）で `api_key` に入れる文字列の値、添字への代入。値は空でない文字列
   - Bearer トークン: `Bearer ` のあとに16文字以上の英数字・`-_.` が続く行
 値が `<...>`・`${...}`・`${{ ... }}`・`{{ ... }}` で包まれているものは、
 鍵ではなく書き込み用の穴や参照とみなす。
@@ -32,6 +37,8 @@ from pathlib import Path
 
 EXIT_OK = 0
 EXIT_FOUND = 1
+EXIT_ERROR = 2
+"""ステージ済みのファイルを git から取れず、調べられなかった。"""
 
 IGNORE_MARK = "# check-secrets: ignore"
 """この文字列を含む行は調べない。"""
@@ -41,6 +48,7 @@ _KEY_NAME = "TYPESAFE_API_KEY"
 
 KIND_FILENAME = "鍵を入れるファイル名"
 KIND_ENV_ASSIGN = "環境変数への代入"
+KIND_ENV_CALL = "環境変数名と値を渡す呼び出し"
 KIND_JSON_KEY = "api_key の値"
 KIND_BEARER = "Bearer トークン"
 
@@ -54,6 +62,14 @@ _ASSIGN_RE = re.compile(
 _BARE_NON_VALUE_START = ("$", "<", "%", "{")
 """引用符なしの値がこれで始まるなら、値ではなく参照や書き込み用の穴とみなす。"""
 _JSON_KEY_RE = re.compile(r""""api_key"\s*:\s*"(?P<value>[^"\n]+)\"""")
+_ENV_CALL_RE = re.compile(rf"""["']{_KEY_NAME}["']\s*,\s*(?P<value>{_QUOTED})""")
+_ENV_READ_CALL_RE = re.compile(r"\b(?:get|getenv)\s*\(\s*$")
+"""名前の直前が `get(`・`getenv(` なら、2つ目の引数は既定値で、鍵を書き込むものではない。"""
+_API_KEY_ASSIGN_RE = re.compile(
+    rf"""api_key["']?\]?(?:\s*:\s*[\w.\[\], |]+?)?\s*=(?!=)\s*(?P<value>{_QUOTED})""",
+    re.IGNORECASE,
+)
+"""`api_key` への代入・キーワード引数。型の注釈つきの代入と、添字（`cfg[...]`）への代入も許す。"""
 _BEARER_RE = re.compile(r"bearer[ \t]+[a-z0-9\-_.]{16,}", re.IGNORECASE)
 _PLACEHOLDER_RE = re.compile(r"<[^<>]*>|\$\{.*\}|\{\{.*\}\}", re.DOTALL)
 """値の全体が `<...>`・`${...}`・`${{ ... }}`・`{{ ... }}` なら、鍵ではない。"""
@@ -87,6 +103,30 @@ def _assign_found(line: str) -> bool:
     return False
 
 
+def _env_call_found(line: str) -> bool:
+    for match in _ENV_CALL_RE.finditer(line):
+        if _ENV_READ_CALL_RE.search(line[: match.start()]):
+            continue
+        if not _is_placeholder(match.group("value")[1:-1]):
+            return True
+    return False
+
+
+def _is_key_name_constant(value: str) -> bool:
+    """`api_key` を含む名前だけの値（`NO_API_KEY = "no_api_key"` のような定数）は鍵ではない。"""
+    return re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) is not None and "api_key" in value.lower()
+
+
+def _api_key_found(line: str) -> bool:
+    if any(not _is_placeholder(m.group("value")) for m in _JSON_KEY_RE.finditer(line)):
+        return True
+    for match in _API_KEY_ASSIGN_RE.finditer(line):
+        value = match.group("value")[1:-1]
+        if not _is_key_name_constant(value) and not _is_placeholder(value):
+            return True
+    return False
+
+
 def _line_kinds(line: str) -> list[str]:
     """1行から見つかった種類の一覧。"""
     if IGNORE_MARK in line:
@@ -94,7 +134,9 @@ def _line_kinds(line: str) -> list[str]:
     kinds: list[str] = []
     if _assign_found(line):
         kinds.append(KIND_ENV_ASSIGN)
-    if any(not _is_placeholder(m.group("value")) for m in _JSON_KEY_RE.finditer(line)):
+    if _env_call_found(line):
+        kinds.append(KIND_ENV_CALL)
+    if _api_key_found(line):
         kinds.append(KIND_JSON_KEY)
     if _BEARER_RE.search(line):
         kinds.append(KIND_BEARER)
@@ -130,25 +172,29 @@ def scan_file(path: str) -> Iterator[tuple[int, str]]:
     yield from scan_bytes(path, data)
 
 
+class GitError(Exception):
+    """ステージ済みのファイルを git から取れなかった。メッセージは1行で表示できる。"""
+
+
 def staged_files() -> list[str]:
-    """ステージ済み（追加・コピー・変更・名前変更）のファイル。git が使えなければ空。"""
+    """ステージ済み（追加・コピー・変更・名前変更）のファイル。取れなければ GitError。"""
     try:
         done = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
             capture_output=True,
             check=True,
         )
-    except (OSError, subprocess.CalledProcessError):
-        return []
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise GitError("ステージ済みのファイルの一覧を git から取れませんでした") from exc
     return [p for p in done.stdout.decode("utf-8", errors="replace").split("\0") if p]
 
 
-def staged_content(path: str) -> bytes | None:
-    """ステージ済みの内容（`git show :<パス>`）。取れなければ None。"""
+def staged_content(path: str) -> bytes:
+    """ステージ済みの内容（`git show :<パス>`）。取れなければ GitError。"""
     try:
         done = subprocess.run(["git", "show", f":{path}"], capture_output=True, check=True)
-    except (OSError, subprocess.CalledProcessError):
-        return None
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise GitError(f"ステージ済みの内容を git から取れませんでした: {path}") from exc
     return done.stdout
 
 
@@ -171,8 +217,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             if Path(path).is_file():
                 found = _report(path, scan_file(path)) or found
     else:
-        for path in staged_files():
-            found = _report(path, scan_bytes(path, staged_content(path))) or found
+        try:
+            for path in staged_files():
+                found = _report(path, scan_bytes(path, staged_content(path))) or found
+        except GitError as exc:
+            print(f"{exc}。調べられないので、コミットを止めました。", file=sys.stderr)
+            return EXIT_ERROR
     if found:
         print(
             "鍵が入っているかもしれないファイルがあります。コミットを止めました。"

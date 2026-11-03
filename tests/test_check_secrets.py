@@ -4,6 +4,8 @@
 そのため、検査が探す形は文字列をつなげて作る。
 """
 
+import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -266,3 +268,142 @@ def test_staged_mode_checks_renamed_files(repo):
 
 def test_staged_mode_with_nothing_staged_passes(repo):
     assert _run_staged(repo).returncode == 0
+
+
+API = "api_" + "key"
+PUT = "put" + "env"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        'monkeypatch.setenv("{K}", "{S}")',
+        "monkeypatch.setenv('{K}', '{S}')",
+        'os.environ.setdefault("{K}", "{S}")',
+        'os.{P}("{K}", "{S}")',
+        'monkeypatch.setitem(os.environ, "{K}", "{S}")',
+        'JevClient({A}="{S}")',
+        'JevClient(base_url=u, {A}="{S}", timeout=3)',
+        '{A} = "{S}"',
+        "{A}='{S}'",
+        '{A}: str = "{S}"',
+        'cfg["{A}"] = "{S}"',
+        '[jev]\n{A} = "{S}"',
+        '{UA} = "{S}"',
+    ],
+)
+def test_python_and_toml_ways_of_writing_a_key_are_found(tmp_path, template):
+    line = template.format(K=KEY_NAME, S=SENTINEL, A=API, P=PUT, UA=API.upper())
+    target = _write(tmp_path / "x.py", line + "\n")
+    done = _run(target)
+    assert done.returncode == 1, line
+    assert SENTINEL not in done.stderr
+    assert done.stderr.count(f"{target}:") >= 1
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        'monkeypatch.setenv("{K}", "<your key>")',
+        'monkeypatch.setenv("{K}", "${{X}}")',
+        'monkeypatch.setenv("{K}", "")',
+        'monkeypatch.setenv("{K}", key)',
+        'monkeypatch.delenv("{K}", raising=False)',
+        'os.environ.get("{K}", "default")',
+        'os.getenv("{K}", "default")',
+        'JevClient({A}=key)',
+        'JevClient({A}=os.environ["{K}"])',
+        'JevClient({A}="")',
+        'JevClient({A}=None)',
+        'JevClient({A}="<your key>")',
+        'JevClient({A}="${{X}}")',
+        '{A} = "{{{{ secrets.X }}}}"',
+        '{A} = os.environ["{K}"]',
+        'if {A} == "{S}": pass',
+        '{UA} = "{K}"',
+        'NO_{UA} = "no_{A}"',
+        'monkeypatch.setenv("{K}", "{S}")  {I}',
+        'JevClient({A}="{S}")  {I}',
+        '{A} = "{S}"  {I}',
+    ],
+)
+def test_references_placeholders_and_empty_values_are_allowed(tmp_path, template):
+    line = template.format(K=KEY_NAME, S=SENTINEL, A=API, I=IGNORE, UA=API.upper())
+    done = _run(_write(tmp_path / "ok.py", line + "\n"))
+    assert done.returncode == 0, (line, done.stderr)
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location("check_secrets_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _failing_run(fail_on_call: int, error: Exception, listing: bytes = b"a.py\0b.py\0"):
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        if len(calls) == fail_on_call:
+            raise error
+        return subprocess.CompletedProcess(cmd, 0, stdout=listing if len(calls) == 1 else b"x\n")
+
+    return run, calls
+
+
+@pytest.mark.parametrize(
+    "error",
+    [subprocess.CalledProcessError(128, "git"), FileNotFoundError("git")],
+)
+def test_staged_mode_stops_when_listing_the_staged_files_fails(monkeypatch, capsys, error):
+    module = _load_module()
+    run, _ = _failing_run(1, error)
+    monkeypatch.setattr(module.subprocess, "run", run)
+    assert module.main([]) == module.EXIT_ERROR == 2
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [subprocess.CalledProcessError(128, "git"), FileNotFoundError("git")],
+)
+def test_staged_mode_stops_when_reading_a_staged_file_fails(monkeypatch, capsys, error):
+    module = _load_module()
+    run, calls = _failing_run(3, error)  # 1: 一覧、2: a.py、3: b.py
+    monkeypatch.setattr(module.subprocess, "run", run)
+    assert module.main([]) == module.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+    assert "b.py" in err
+    assert len(calls) == 3
+
+
+def test_staged_mode_outside_a_git_repository_is_an_error(tmp_path):
+    if shutil.which("git") is None:
+        pytest.skip("git が無い")
+    env = {**os.environ, "GIT_DIR": str(tmp_path / "no-such-git-dir")}
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+    assert done.returncode == 2
+    assert len(done.stderr.strip().splitlines()) == 1
+
+
+def test_file_arguments_do_not_need_git(tmp_path):
+    env = {**os.environ, "GIT_DIR": str(tmp_path / "no-such-git-dir")}
+    target = _write(tmp_path / "ok.txt", "x\n")
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), str(target)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+    assert done.returncode == 0

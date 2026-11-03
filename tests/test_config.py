@@ -92,14 +92,14 @@ def test_missing_explicit_file_is_error(tmp_path):
 @pytest.mark.parametrize(
     "text",
     [
-        '[jev]\napi_key = "x"\n',
+        '[jev]\napi_key = "x"\n',  # check-secrets: ignore
         '[jev]\nMy_Token_Value = "x"\n',
         '[memory]\nsecret = "x"\n',
         '[storage]\nPassword = "x"\n',
         '[rustxng]\nAPIKEY = "x"\n',
         '[extra.nested]\nxx_secret_yy = 1\n',
         # 配列の中（表の配列・配列内のインライン表・入れ子の配列）も調べる
-        '[[extra]]\napi_key = "x"\n',
+        '[[extra]]\napi_key = "x"\n',  # check-secrets: ignore
         'servers = [{token = "x"}]\n',
         'matrix = [[{password = "x"}]]\n',
     ],
