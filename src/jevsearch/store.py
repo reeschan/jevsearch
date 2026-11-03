@@ -111,6 +111,7 @@ def job_row(record: JobRecord) -> dict:
         "query_norm": _query_norm(record.query_norm),
         "topic": record.topic,
         "genre": None if record.genre is None else str(record.genre.value),
+        "query_genre": None if record.query_genre is None else _judgment(record.query_genre),
         "started_at": _iso(record.started_at),
         "duration_ms": record.duration_ms,
         "outcome": str(record.outcome.value),

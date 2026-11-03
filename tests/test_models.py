@@ -178,6 +178,7 @@ DATACLASSES = {
         "n_unclassified",
         "versions",
         "jev_usage",
+        "query_genre",
     ],
 }
 

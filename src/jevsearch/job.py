@@ -117,7 +117,8 @@ def run_job(
 ) -> JobRecord:
     """検索ジョブを1件進め、ジョブの記録を返す（保存も済ませる）。
 
-    書く順番は、結果ログ（結果があるとき）→ ダイジェスト → ジョブの記録 → 評価記録（分類したとき）。
+    書く順番は、結果ログ（結果があるとき）→ ダイジェスト → ジョブの記録 → 評価記録。
+    評価記録はどの結末でも書く（Jev まで行かなかったときは report なし）。
     ダイジェストの失敗は `reasons.digest_failure` に残すだけで、結末は変えない。
 
     遷移: 検索語を受け取った
@@ -194,20 +195,20 @@ def run_job(
         n_unclassified=sum(1 for item in classified if _is_unclassified(item)),
         versions=versions,
         jev_usage=usage,
+        query_genre=report.query_genre if report is not None else None,
     )
     store.append_job(job_row(record))
 
-    # ④ 評価記録
-    if report is not None:
-        store.append_eval(
-            eval_row(
-                job_id=request.job_id,
-                started_at=started_at,
-                items=classified,
-                report=report,
-                failed_engines=response.failed_engines,
-                price_per_mtok_input=config.jev.price_per_mtok_input,
-                price_per_mtok_output=config.jev.price_per_mtok_output,
-            )
+    # ④ 評価記録（Jev まで行かなかったジョブにも書く。report は None のことがある）
+    store.append_eval(
+        eval_row(
+            job_id=request.job_id,
+            started_at=started_at,
+            items=classified,
+            report=report,
+            failed_engines=response.failed_engines,
+            price_per_mtok_input=config.jev.price_per_mtok_input,
+            price_per_mtok_output=config.jev.price_per_mtok_output,
         )
+    )
     return record

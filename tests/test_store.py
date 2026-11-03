@@ -194,6 +194,15 @@ def test_no_results_and_failed_jobs_are_each_recorded(tmp_path):
     assert len(_lines(tmp_path / "data" / "jobs.jsonl")) == 2
 
 
+def test_job_row_query_genre_has_the_judgment_shape_or_null():
+    base = _record(Outcome.SAVED, JobState.SAVED)
+    assert job_row(base)["query_genre"] is None
+    row = job_row(replace(base, query_genre=Judgment("tech", JudgedBy.JEV, 0.8)))
+    assert row["query_genre"] == {"value": "tech", "by": "jev", "confidence": 0.8}
+    unclassified = job_row(replace(base, query_genre=Judgment(None, JudgedBy.JEV, None)))
+    assert unclassified["query_genre"] == {"value": None, "by": "jev", "confidence": None}
+
+
 def test_job_row_with_no_query_norm_and_genre():
     row = job_row(replace(_record(Outcome.FAILED, JobState.FAILED), query_norm=None))
     assert row["query_norm"] is None

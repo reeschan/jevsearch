@@ -444,19 +444,56 @@ def test_last_state_matches_the_outcome(tmp_path, kind):
     assert job["states"][0] == "accepted"
 
 
-def test_eval_record_is_written_only_when_results_were_classified(tmp_path):
+def test_eval_record_is_written_for_a_classified_job(tmp_path):
     _run(tmp_path, _deps())
     evals = _jsonl(tmp_path / "data" / "eval.jsonl")
     assert len(evals) == 1
     assert evals[0]["job_id"] == _jobs(tmp_path)[0]["job_id"]
     assert evals[0]["n_results"] == len(RESULTS)
 
-    other = tmp_path / "other"
-    other.mkdir()
-    response, jev = _scenario("failed")
-    _run(other, _deps(search=FakeSearch(response), jev=jev))
-    assert not (other / "data" / "eval.jsonl").exists()
-    assert len(_jsonl(other / "data" / "jobs.jsonl")) == 1
+
+@pytest.mark.parametrize("kind", ["no_results", "failed"])
+def test_eval_record_is_written_for_jobs_that_never_reached_jev(tmp_path, kind):
+    response, jev = _scenario(kind)
+    _run(tmp_path, _deps(search=FakeSearch(response), jev=jev))
+    (job,) = _jobs(tmp_path)
+    (row,) = _jsonl(tmp_path / "data" / "eval.jsonl")
+    assert row["job_id"] == job["job_id"]
+    assert row["n_results"] == 0
+    assert row["jev_tokens"] == {"input": None, "output": None, "estimated_input": 0}
+    assert row["failed_engines"] == job["reasons"]["failed_engines"]
+    assert jev.calls == []
+
+
+def test_eval_record_of_a_no_result_job_lists_the_failed_engine(tmp_path):
+    response, jev = _scenario("no_results")
+    _run(tmp_path, _deps(search=FakeSearch(response), jev=jev))
+    (row,) = _jsonl(tmp_path / "data" / "eval.jsonl")
+    assert row["failed_engines"] == [{"engine": "arxiv", "reason": "timeout"}]
+
+
+def test_job_record_holds_the_query_genre_judged_by_jev(tmp_path):
+    _run(tmp_path, _deps())
+    (job,) = _jobs(tmp_path)
+    assert job["query_genre"] == {"value": "tech", "by": "jev", "confidence": 0.9}
+
+
+def test_job_record_query_genre_is_null_without_a_jev_report(tmp_path):
+    for kind in ("no_results", "failed"):
+        sub = tmp_path / kind
+        sub.mkdir()
+        response, jev = _scenario(kind)
+        _run(sub, _deps(search=FakeSearch(response), jev=jev))
+        (job,) = _jobs(sub)
+        assert job["query_genre"] is None
+
+
+def test_job_record_query_genre_is_unclassified_when_jev_fails(tmp_path):
+    response, jev = _scenario("partial_jev")
+    _run(tmp_path, _deps(search=FakeSearch(response), jev=jev))
+    (job,) = _jobs(tmp_path)
+    assert job["query_genre"]["value"] is None
+    assert job["query_genre"]["by"] == "jev"
 
 
 # --- decide_outcome ---

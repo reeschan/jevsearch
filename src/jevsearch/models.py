@@ -227,3 +227,4 @@ class JobRecord:
     n_unclassified: int
     versions: Versions
     jev_usage: tuple[JevUsage, ...]
+    query_genre: Judgment | None = None

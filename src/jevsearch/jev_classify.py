@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from jevsearch.jev_client import JevError, JevResult
+from jevsearch.jev_client import JevError, JevErrorCode, JevResult
 from jevsearch.models import (
     ClassifiedResult,
     Genre,
@@ -301,7 +301,7 @@ def _token_count(usage: Mapping | None, key: str) -> int | None:
 
 
 def _failure_code(error: JevError) -> str:
-    if error.code == "http":
+    if error.code == JevErrorCode.HTTP:
         return f"http {error.status}"
     return error.code
 
