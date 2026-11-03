@@ -4,11 +4,15 @@ import io
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from jevsearch.cli import Deps, main
 from jevsearch.config import load_config, scrape_engine_names
+from jevsearch.jev_classify import JevClassifier
+from jevsearch.mcp_client import McpHttpClient
 from jevsearch.models import Lang
+from jevsearch.rustxng import RustxngAdapter
 from jevsearch.search_request import build_search_request
 
 
@@ -52,7 +56,7 @@ def _dry(tmp_path, *extra, text="", query="rust メタ検索"):
 def test_dry_run_json_shape(tmp_path):
     data = _dry(tmp_path, "--genre", "paper", "--topic", "t1", "--max", "7")
     assert data["query"] == "rust メタ検索"
-    assert data["query_norm"] == {"ja": "rust メタ検索", "en": None}
+    assert data["query_norm"] == {"ja": "rust メタ検索", "en": "rust metasearch"}
     assert data["genre"] == "paper"
     assert data["topic"] == "t1"
     assert data["engines"][0] == "arxiv"
@@ -62,7 +66,9 @@ def test_dry_run_json_shape(tmp_path):
     assert request["params"]["max_results"] == "7"
     assert request["params"]["language"] == "ja"
     assert request["params"]["q"] == "rust メタ検索"
-    assert data["jev"] == {"model": "jev-1.14.0", "batch_size": 25, "threshold": 0.55}
+    jev = dict(data["jev"])
+    assert jev.pop("preview")["questions"]
+    assert jev == {"model": "jev-1.14.0", "batch_size": 25, "threshold": 0.55}
     assert data["versions"] == {"config": data["versions"]["config"]}
     assert data["versions"]["config"]
 
@@ -181,20 +187,13 @@ def test_other_subcommands_are_not_implemented(command):
     assert "未実装" in err
 
 
-def test_search_without_dry_run_is_not_implemented(tmp_path):
-    deps = _deps()
-    cfg = _config(tmp_path)
-    code, out, err = _run(["search", "abc", "--config", str(cfg)], deps)
-    assert code == 2
-    assert out == ""
-    assert "未実装" in err
-
-
-def test_default_deps_factories_raise_not_implemented():
-    deps = Deps()
-    for make in (deps.make_search_backend, deps.make_classifier, deps.make_memory_client):
-        with pytest.raises(NotImplementedError):
-            make(None)  # type: ignore[arg-type]  # 仮の作り方は設定を見ない
+def test_default_deps_factories_build_real_parts(tmp_path):
+    transport = httpx.MockTransport(lambda request: httpx.Response(500))
+    deps = Deps(env={}, http_transport=transport)
+    config = load_config(_config(tmp_path))
+    assert isinstance(deps.make_search_backend(config, False), RustxngAdapter)
+    assert isinstance(deps.make_classifier(config), JevClassifier)
+    assert isinstance(deps.make_memory_client(config), McpHttpClient)
     assert deps.clock.now().tzinfo is not None
 
 
