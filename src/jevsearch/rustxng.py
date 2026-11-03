@@ -68,7 +68,8 @@ class RustxngAdapter:
         """GET して JSON の辞書を返す。接続エラー・HTTP エラー・JSON でない応答は None。"""
         try:
             response = self._client.get(url, params=params)
-        except httpx.TransportError:
+        except httpx.HTTPError:
+            # TransportError のほか DecodingError（壊れた gzip など）も、つながらなかった扱いにする
             return None
         if response.status_code >= 400:
             return None
@@ -109,6 +110,7 @@ class RustxngAdapter:
             )
 
         merged: dict[str, _Merged] = {}
+        order: dict[Lang, list[str]] = {}
         failures: list[EngineFailure] = []
         retried: list[Lang] = []
         unreachable: list[Lang] = []
@@ -123,8 +125,22 @@ class RustxngAdapter:
                 unreachable.append(lang)
                 continue
             retrieved_at = self._clock.now()
-            self._collect_results(data, lang, retrieved_at, merged)
+            order[lang] = self._collect_results(data, lang, retrieved_at, merged)
             self._collect_failures(data, failures)
+
+        # 検索語の順（ja → en）に1件ずつ交互に取る。日本語版が上限まで埋まっても英語版の結果が残る
+        picked: list[str] = []
+        taken: set[str] = set()
+        longest = max((len(urls) for urls in order.values()), default=0)
+        for index in range(longest):
+            for lang, _ in queries:
+                urls = order.get(lang, [])
+                if index >= len(urls) or urls[index] in taken:
+                    continue
+                if len(picked) >= max_results:
+                    break
+                taken.add(urls[index])
+                picked.append(urls[index])
 
         results = tuple(
             SearchResult(
@@ -137,8 +153,8 @@ class RustxngAdapter:
                 engines=tuple(m.engines),
                 matched=tuple(m.matched),
             )
-            for m in merged.values()
-        )[:max_results]
+            for m in (merged[url] for url in picked)
+        )
 
         if results:
             verdict = SearchVerdict.HAS_RESULTS
@@ -162,17 +178,23 @@ class RustxngAdapter:
         lang: Lang,
         retrieved_at: datetime.datetime,
         merged: dict[str, _Merged],
-    ) -> None:
-        """results[] の5項目だけを読み、URL（前後の空白を落とした文字列）でまとめる。"""
+    ) -> list[str]:
+        """results[] の5項目だけを読み、URL（前後の空白を落とした文字列）でまとめる。
+
+        この検索語で出てきた URL を、出てきた順（重複なし）で返す。
+        """
+        seen: list[str] = []
         items = data.get("results")
         if not isinstance(items, list):
-            return
+            return seen
         for item in items:
             if not isinstance(item, dict):
                 continue
             url = _text(item.get("url")).strip()
             if not url:
                 continue
+            if url not in seen:
+                seen.append(url)
             engine = _text(item.get("engine"))
             entry = merged.get(url)
             if entry is None:
@@ -192,6 +214,7 @@ class RustxngAdapter:
                 entry.engines.append(engine)
             if lang not in entry.matched:
                 entry.matched.append(lang)
+        return seen
 
     @staticmethod
     def _collect_failures(data: dict, failures: list[EngineFailure]) -> None:

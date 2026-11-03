@@ -213,19 +213,19 @@ def test_ja_と_en_で同じ_url_は1件にまとまる():
     response = make(server).search(QUERY, ["wikipedia"], 50)
 
     urls = [r.url for r in response.results]
-    # ja の3件の後に、en だけで当たった1件
+    # ja・en を交互に取る（ja1, en1, ja2=en1 は取り済み, en2, ja3）
     assert urls == [
         "https://example.org/ja/quantum-intro",
         "https://example.org/shared/quantum-paper",
-        "https://example.org/ja/quantum-blog",
         "https://example.org/en/quantum-docs",
+        "https://example.org/ja/quantum-blog",
     ]
     shared = response.results[1]
     assert shared.matched == (Lang.JA, Lang.EN)
     assert shared.engine == "arxiv"
     assert shared.engines == ("arxiv", "crossref")
     assert response.results[0].matched == (Lang.JA,)
-    assert response.results[3].matched == (Lang.EN,)
+    assert response.results[2].matched == (Lang.EN,)
 
 
 def test_en_が無ければ_ja_だけを1回問い合わせる():
@@ -245,6 +245,75 @@ def test_max_results_件で切る():
         "https://example.org/ja/quantum-intro",
         "https://example.org/shared/quantum-paper",
     ]
+
+
+def _urls_ok(urls: list[str]) -> httpx.Response:
+    body = {"results": [{"url": u, "title": u, "content": u, "engine": "github"} for u in urls]}
+    return httpx.Response(200, json=body)
+
+
+def test_日本語版が上限まで埋まっても英語版だけの結果は交互に残る():
+    """遷移: 結果が1件以上届いた
+    never: 一部のエンジンや Jev が失敗したことを理由に、取れた結果を捨てない
+    """
+    ja = [f"https://{c}.test/" for c in "abc"]
+    en = [f"https://{c}.test/" for c in "de"]
+    server = Server({JA_Q: [_urls_ok(ja)], EN_Q: [_urls_ok(en)]})
+    response = make(server).search(QUERY, ["github"], 3)
+
+    assert [r.url for r in response.results] == [
+        "https://a.test/",
+        "https://d.test/",
+        "https://b.test/",
+    ]
+    assert [r.matched for r in response.results] == [(Lang.JA,), (Lang.EN,), (Lang.JA,)]
+
+
+def test_両方で当たった_url_は交互に取っても1件で_両方の言語が_matched_に入る():
+    ja = ["https://a.test/", "https://b.test/", "https://c.test/"]
+    en = ["https://b.test/", "https://d.test/"]
+    server = Server({JA_Q: [_urls_ok(ja)], EN_Q: [_urls_ok(en)]})
+    response = make(server).search(QUERY, ["github"], 3)
+
+    # ja1=a, en1=b, ja2=b（取り済み）, en2=d
+    assert [r.url for r in response.results] == [
+        "https://a.test/",
+        "https://b.test/",
+        "https://d.test/",
+    ]
+    assert response.results[1].matched == (Lang.JA, Lang.EN)
+
+
+def test_ja_だけなら順番も切り方も変わらない():
+    query = NormalizedQuery(original="x", ja=JA_Q, en=None, dictionary_version="d1")
+    ja = [f"https://{c}.test/" for c in "abcde"]
+    server = Server({JA_Q: [_urls_ok(ja)]})
+    response = make(server).search(query, ["github"], 3)
+
+    assert [r.url for r in response.results] == [f"https://{c}.test/" for c in "abc"]
+
+
+def test_DecodingError_も接続エラーと同じく1回やり直し_だめなら_unreachable():
+    """遷移: やり直しても検索エンジンにつながらず、結果が1件も届かなかった"""
+    query = NormalizedQuery(original="x", ja=JA_Q, en=None, dictionary_version="d1")
+    server = Server({JA_Q: [httpx.DecodingError("bad gzip"), httpx.DecodingError("bad gzip")]})
+    response = make(server).search(query, ["wikipedia"], 50)
+
+    assert server.calls(JA_Q) == 2
+    assert response.verdict == SearchVerdict.FAILED
+    assert response.retried_queries == (Lang.JA,)
+    assert response.unreachable_queries == (Lang.JA,)
+
+
+def test_DecodingError_の後に成功すれば結果が残る():
+    """遷移: 検索エンジンにつながらず、1回だけやり直す"""
+    server = Server({JA_Q: [httpx.DecodingError("bad gzip"), ja_ok()], EN_Q: [en_ok()]})
+    response = make(server).search(QUERY, ["wikipedia"], 50)
+
+    assert server.calls(JA_Q) == 2
+    assert response.retried_queries == (Lang.JA,)
+    assert response.unreachable_queries == ()
+    assert response.verdict == SearchVerdict.HAS_RESULTS
 
 
 def test_つながらない検索語だけを1回やり直す():
