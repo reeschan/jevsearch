@@ -26,6 +26,12 @@ from jevsearch.ports import Classifier
 # 判定の種類（評価記録・比較・CSV の列名と同じ）。
 JUDGMENT_KEYS: tuple[str, ...] = ("type", "genre", "relevant")
 
+# 未分類の件数のキー（評価記録・集計に書く名前）。
+UNCLASSIFIED_KEY = "unclassified"
+
+# 評価記録・集計で判定ごとに数える3つの種類（規則・Jev・未分類）。
+COUNT_KINDS: tuple[str, ...] = (JudgedBy.RULE.value, JudgedBy.JEV.value, UNCLASSIFIED_KEY)
+
 # 確信度の分布の区間数（0.1 刻み）。
 N_BINS = 10
 
@@ -57,16 +63,18 @@ def _bin_index(confidence: float) -> int:
 
 
 def _judgment_counts(judgments: Sequence[Judgment], total: int) -> dict:
-    rule = sum(1 for j in judgments if j.value is not None and j.by == JudgedBy.RULE)
-    jev = sum(1 for j in judgments if j.value is not None and j.by == JudgedBy.JEV)
-    unclassified = sum(1 for j in judgments if j.value is None)
+    counts = {
+        JudgedBy.RULE.value: sum(
+            1 for j in judgments if j.value is not None and j.by == JudgedBy.RULE
+        ),
+        JudgedBy.JEV.value: sum(
+            1 for j in judgments if j.value is not None and j.by == JudgedBy.JEV
+        ),
+        UNCLASSIFIED_KEY: sum(1 for j in judgments if j.value is None),
+    }
     return {
-        "rule": rule,
-        "jev": jev,
-        "unclassified": unclassified,
-        "rule_rate": _rate(rule, total),
-        "jev_rate": _rate(jev, total),
-        "unclassified_rate": _rate(unclassified, total),
+        **counts,
+        **{f"{kind}_rate": _rate(counts[kind], total) for kind in COUNT_KINDS},
     }
 
 
@@ -81,7 +89,7 @@ def eval_row(
     job_id: str,
     started_at: datetime,
     items: Sequence[ClassifiedResult],
-    report: JevReport,
+    report: JevReport | None,
     failed_engines: Sequence[EngineFailure],
     price_per_mtok_input: float | None,
     price_per_mtok_output: float | None,
@@ -93,6 +101,9 @@ def eval_row(
     0.1 刻みの10区間に数えたもの。確信度のない判定は数えない。
     費用の目安（USD）は、単価が両方あり、全ての使用量の入力・出力トークン数が取れたときだけ
     数値、それ以外（1つでも欠けた場合を含む）は None。
+    report が None（Jev まで行かなかったジョブ）のときは Jev の使用量なし
+    （トークン数は入力・出力とも None、estimated_input は 0、費用は None）で、
+    結果の件数・割合と失敗したエンジンは同じように記録する。
     """
     total = len(items)
     row: dict = {
@@ -109,15 +120,16 @@ def eval_row(
                 bins[_bin_index(j.confidence)] += 1
     row["confidence_distribution"] = bins
 
-    input_tokens = _sum_known(u.input_tokens for u in report.usage)
-    output_tokens = _sum_known(u.output_tokens for u in report.usage)
+    usage = report.usage if report is not None else ()
+    input_tokens = _sum_known(u.input_tokens for u in usage)
+    output_tokens = _sum_known(u.output_tokens for u in usage)
     row["jev_tokens"] = {
         "input": input_tokens,
         "output": output_tokens,
-        "estimated_input": sum(u.estimated_input_tokens for u in report.usage),
+        "estimated_input": sum(u.estimated_input_tokens for u in usage),
     }
-    tokens_complete = bool(report.usage) and all(
-        u.input_tokens is not None and u.output_tokens is not None for u in report.usage
+    tokens_complete = bool(usage) and all(
+        u.input_tokens is not None and u.output_tokens is not None for u in usage
     )
     cost: float | None = None
     if (
@@ -145,7 +157,7 @@ def aggregate(rows: Iterable[dict], since: date | None = None) -> dict:
     """
     jobs = 0
     results = 0
-    counts = {key: {"rule": 0, "jev": 0, "unclassified": 0} for key in JUDGMENT_KEYS}
+    counts = {key: dict.fromkeys(COUNT_KINDS, 0) for key in JUDGMENT_KEYS}
     token_in: list[int | None] = []
     token_out: list[int | None] = []
     token_est: list[int | None] = []
@@ -160,7 +172,7 @@ def aggregate(rows: Iterable[dict], since: date | None = None) -> dict:
         jobs += 1
         results += row.get("n_results", 0)
         for key in JUDGMENT_KEYS:
-            for kind in ("rule", "jev", "unclassified"):
+            for kind in COUNT_KINDS:
                 counts[key][kind] += row.get(key, {}).get(kind, 0)
         tokens = row.get("jev_tokens") or {}
         token_in.append(tokens.get("input"))
@@ -177,9 +189,7 @@ def aggregate(rows: Iterable[dict], since: date | None = None) -> dict:
         c = counts[key]
         out[key] = {
             **c,
-            "rule_rate": _rate(c["rule"], results),
-            "jev_rate": _rate(c["jev"], results),
-            "unclassified_rate": _rate(c["unclassified"], results),
+            **{f"{kind}_rate": _rate(c[kind], results) for kind in COUNT_KINDS},
         }
     out["jev_tokens"] = {
         "input": _sum_known(token_in),
@@ -209,8 +219,18 @@ def _lang_of(title: str) -> str:
     return Lang.JA.value if is_japanese(title) else Lang.EN.value
 
 
+def _query_for_classify(row: Mapping) -> str:
+    """本番（job.py）が分類に渡す検索語。正規化した日本語 query_norm.ja。なければ query。"""
+    query_norm = row.get("query_norm")
+    ja = query_norm.get(Lang.JA.value) if isinstance(query_norm, Mapping) else None
+    return ja or row["query"]
+
+
 def rows_to_results(rows: Iterable[dict]) -> dict[tuple[str, str], list[SearchResult]]:
-    """結果ログの行を (job_id, query) ごとの SearchResult の並びに戻す。行の順を保つ。"""
+    """結果ログの行を (job_id, 分類に渡す検索語) ごとの SearchResult の並びに戻す。行の順を保つ。
+
+    分類に渡す検索語は query_norm.ja（なければ query）。本番と同じ検索語で比べるため。
+    """
     groups: dict[tuple[str, str], list[SearchResult]] = {}
     for row in rows:
         result = SearchResult(
@@ -223,7 +243,7 @@ def rows_to_results(rows: Iterable[dict]) -> dict[tuple[str, str], list[SearchRe
             engines=tuple(row.get("engines") or (row["engine"],)),
             matched=tuple(Lang(m) for m in row.get("matched", ())),
         )
-        groups.setdefault((row["job_id"], row["query"]), []).append(result)
+        groups.setdefault((row["job_id"], _query_for_classify(row)), []).append(result)
     return groups
 
 
@@ -297,8 +317,21 @@ def _cell(judgment: Mapping | None) -> str:
     return str(value)
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_text(text: str) -> str:
+    """表計算ソフトで開いても数式にならないよう、危ない先頭文字のセルの頭に ' を付ける。"""
+    return "'" + text if text.startswith(_FORMULA_PREFIXES) else text
+
+
 def sample_csv(rows: Iterable[dict], n: int, seed: int = 0) -> str:
-    """人が正解を付けるための抜き出し（CSV）。label_* の列は空。同じ入力・seed なら同じ抜き出し。"""
+    """人が正解を付けるための抜き出し（CSV）。label_* の列は空。同じ入力・seed なら同じ抜き出し。
+
+    ウェブ由来の query・url・title・snippet は、先頭が = + - @ タブ 改行（CR）のとき
+    頭に ' を付けて書く（表計算ソフトで数式にならないように）。
+    accuracy_from_labels は id と判定の列だけで突き合わせ、この4列を比べない。
+    """
     pool = list(rows)
     picked = random.Random(seed).sample(pool, min(n, len(pool)))
     buf = io.StringIO()
@@ -309,10 +342,10 @@ def sample_csv(rows: Iterable[dict], n: int, seed: int = 0) -> str:
             [
                 row["job_id"],
                 row["id"],
-                row["query"],
-                row["url"],
-                row["title"],
-                row["snippet"],
+                _safe_text(row["query"]),
+                _safe_text(row["url"]),
+                _safe_text(row["title"]),
+                _safe_text(row["snippet"]),
                 _lang_of(row["title"]),
                 _cell(row.get("type")),
                 _cell(row.get("genre")),

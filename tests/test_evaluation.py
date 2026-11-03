@@ -172,6 +172,55 @@ def test_eval_row_records_failed_engines():
     assert row["failed_engines"] == [{"engine": "arxiv", "reason": "timeout"}]
 
 
+def test_eval_row_without_report_records_failures_and_counts():
+    failures = [EngineFailure("arxiv", "timeout")]
+    row = eval_row(
+        job_id="J0",
+        started_at=T0,
+        items=[],
+        report=None,
+        failed_engines=failures,
+        price_per_mtok_input=3.0,
+        price_per_mtok_output=15.0,
+    )
+    assert row["n_results"] == 0
+    assert row["jev_tokens"] == {"input": None, "output": None, "estimated_input": 0}
+    assert row["cost_usd"] is None
+    assert row["failed_engines"] == [{"engine": "arxiv", "reason": "timeout"}]
+    assert row["type"]["rule_rate"] == 0.0
+    assert row["confidence_distribution"] == [0] * 10
+    # 行の形は report ありのときと同じ
+    assert set(row) == set(_row(items=[], report=_report()))
+    assert aggregate([row])["failed_engines"] == {"arxiv": 1}
+    # 結果があるときは件数・割合を items から数える
+    with_items = eval_row(
+        job_id="J0",
+        started_at=T0,
+        items=_six_items(),
+        report=None,
+        failed_engines=[],
+        price_per_mtok_input=3.0,
+        price_per_mtok_output=15.0,
+    )
+    assert with_items["type"]["rule"] == 2
+    assert with_items["jev_tokens"]["input"] is None
+    assert with_items["cost_usd"] is None
+
+
+def test_aggregate_uses_same_json_keys():
+    agg = aggregate([_row()])
+    for key in ("type", "genre", "relevant"):
+        assert set(agg[key]) == {
+            "rule",
+            "jev",
+            "unclassified",
+            "rule_rate",
+            "jev_rate",
+            "unclassified_rate",
+        }
+    assert set(_row()["type"]) == set(agg["type"])
+
+
 def test_aggregate_sums_rows_and_engine_failures():
     r1 = _row(failed=[EngineFailure("arxiv", "timeout")], pin=3.0, pout=15.0)
     r2 = _row(failed=[EngineFailure("arxiv", "http 500"), EngineFailure("github", "x")])
@@ -379,6 +428,32 @@ def test_batch_vs_single_excludes_rule_decided_types():
     assert "rule_decided" not in result["genre"]["en"]
 
 
+def test_batch_vs_single_passes_normalized_japanese_query():
+    seen = []
+
+    class Spy:
+        def classify(self, query, results, rule_types):
+            seen.append(query)
+            return [], _report()
+
+    rows = [
+        _log_row("J1", 1, "a", query="ユーザビリティ", query_norm={"ja": "UX", "en": None}),
+        _log_row("J1", 2, "b", query="ユーザビリティ", query_norm={"ja": "UX", "en": None}),
+        _log_row("J2", 1, "c", query="未正規化", query_norm=None),
+        _log_row("J3", 1, "d", query="ja なし", query_norm={"ja": None, "en": "x"}),
+        _log_row("J4", 1, "e", query="キーなし", query_norm={"en": "x"}),
+    ]
+    del rows[2]["query_norm"]
+    batch_vs_single(rows, lambda n: Spy(), batch_size=25, rule_types_for=lambda rs: {})
+    assert sorted(seen) == sorted(["UX", "UX", "未正規化", "未正規化", "ja なし", "ja なし", "キーなし", "キーなし"])
+    assert set(rows_to_results(rows)) == {
+        ("J1", "UX"),
+        ("J2", "未正規化"),
+        ("J3", "ja なし"),
+        ("J4", "キーなし"),
+    }
+
+
 def test_batch_vs_single_passes_rule_types():
     seen = []
 
@@ -437,6 +512,50 @@ def test_sample_csv_n_larger_than_rows_and_unclassified_cell():
     parsed = list(csv.DictReader(io.StringIO(sample_csv(rows, 50))))
     assert len(parsed) == 1
     assert parsed[0]["relevant"] == ""
+
+
+@pytest.mark.parametrize("prefix", ["=", "+", "-", "@", "\t", "\r"])
+def test_sample_csv_neutralizes_formula_cells(prefix):
+    dangerous = f'{prefix}HYPERLINK("http://x","y")'
+    rows = [
+        _log_row(
+            "J1",
+            1,
+            dangerous,
+            query=dangerous,
+            url=dangerous,
+            snippet=dangerous,
+        )
+    ]
+    parsed = list(csv.DictReader(io.StringIO(sample_csv(rows, 1)), strict=True))
+    assert len(parsed) == 1
+    for col in ("query", "url", "title", "snippet"):
+        assert parsed[0][col] == "'" + dangerous
+
+
+def test_sample_csv_formula_title_and_safe_text_untouched():
+    rows = [_log_row("J1", 1, "=1+1", query="plain")]
+    text = sample_csv(rows, 1)
+    assert ",'=1+1," in text
+    assert ",=1+1," not in text
+    parsed = list(csv.DictReader(io.StringIO(text)))
+    assert parsed[0]["query"] == "plain"
+    assert parsed[0]["snippet"] == "s"
+    # 途中にある記号は変えない
+    mid = list(csv.DictReader(io.StringIO(sample_csv([_log_row("J1", 1, "a=b -c")], 1))))
+    assert mid[0]["title"] == "a=b -c"
+
+
+def test_accuracy_from_labels_ignores_escaped_text_columns():
+    rows = [_log_row("J1", 1, "=1+1")]
+    parsed = list(csv.DictReader(io.StringIO(sample_csv(rows, 1))))
+    parsed[0]["label_type"] = "repo"
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=CSV_COLUMNS, lineterminator="\n")
+    writer.writeheader()
+    writer.writerow(parsed[0])
+    acc = accuracy_from_labels(out.getvalue())
+    assert acc["type"]["en"] == {"correct": 1, "total": 1, "accuracy": 1.0, "unclassified": 0}
 
 
 def test_accuracy_from_labels_by_language():
