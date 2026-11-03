@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 import pytest
 
-from jevsearch.jev_client import JevClient, JevError, JevResult
+from jevsearch.jev_client import JevClient, JevError, JevErrorCode, JevResult
 from jevsearch.models import JEV_MODEL
 
 KEY = "sk-test-SENTINEL-0000"
@@ -230,3 +230,58 @@ def test_answersが辞書でない200はbad_response(tmp_path):
         client.ask("s", QUESTIONS)
     assert ei.value.code == "bad_response"
     assert ei.value.status == 200
+
+
+def test_やり直しの途中でも上限を超えて送らない(tmp_path):
+    """遷移: Jev が使えない、または上限を超えたので未分類として残した"""
+    clock = FakeClock()
+    today = clock.now().astimezone().date().isoformat()
+    (tmp_path / "jev-usage.json").write_text(json.dumps({today: 1}), encoding="utf-8")
+    rec = Recorder(*[_json(429, {}) for _ in range(4)])
+    client, _ = _make(tmp_path, rec, limit=2, clock=clock)
+    with pytest.raises(JevError) as ei:
+        client.ask("s", QUESTIONS)
+    assert ei.value.code == JevErrorCode.DAILY_LIMIT
+    assert len(rec.requests) == 1
+    saved = json.loads((tmp_path / "jev-usage.json").read_text(encoding="utf-8"))
+    assert saved == {today: 2}
+
+
+def test_接続エラーのやり直しでも上限を超えて送らない(tmp_path):
+    clock = FakeClock()
+    today = clock.now().astimezone().date().isoformat()
+    (tmp_path / "jev-usage.json").write_text(json.dumps({today: 1}), encoding="utf-8")
+    rec = Recorder(httpx.ConnectError("boom"), _json())
+    client, _ = _make(tmp_path, rec, limit=2, clock=clock)
+    with pytest.raises(JevError) as ei:
+        client.ask("s", QUESTIONS)
+    assert ei.value.code == JevErrorCode.DAILY_LIMIT
+    assert len(rec.requests) == 1
+
+
+def test_JevErrorのcodeはJevErrorCodeで文字列の値は変わらない(tmp_path):
+    assert {c.value for c in JevErrorCode} == {
+        "no_api_key",
+        "daily_limit",
+        "timeout",
+        "network",
+        "http",
+        "bad_response",
+    }
+    rec = Recorder(_json(400, {}))
+    client, _ = _make(tmp_path, rec)
+    with pytest.raises(JevError) as ei:
+        client.ask("s", QUESTIONS)
+    assert isinstance(ei.value.code, JevErrorCode)
+    assert ei.value.code == JevErrorCode.HTTP
+    assert ei.value.code == "http"
+    assert str(ei.value).startswith("http: ")
+
+
+def test_JevErrorは文字列のcodeを受けJevErrorCodeにする():
+    error = JevError("http", "x", 500)
+    assert error.code is JevErrorCode.HTTP
+    assert str(error) == "http: x"
+    assert error.status == 500
+    with pytest.raises(ValueError):
+        JevError("unknown_code")

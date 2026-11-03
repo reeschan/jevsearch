@@ -9,6 +9,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import httpx
@@ -20,15 +21,29 @@ _MAX_WAIT_SECONDS = 30.0
 _DETAIL_LIMIT = 500
 
 
+class JevErrorCode(StrEnum):
+    """JevError.code の値。文字列の値は記録に残るので変えない。"""
+
+    NO_API_KEY = "no_api_key"
+    DAILY_LIMIT = "daily_limit"
+    TIMEOUT = "timeout"
+    NETWORK = "network"
+    HTTP = "http"
+    BAD_RESPONSE = "bad_response"
+
+
 class JevError(Exception):
     """Jev を呼べなかった。
 
-    code: no_api_key / daily_limit / http / network / timeout / bad_response。
-    status は HTTP ステータス（無ければ 0）。
+    code は JevErrorCode。status は HTTP ステータス（無ければ 0）。
     """
 
-    def __init__(self, code: str, message: str = "", status: int = 0) -> None:
-        super().__init__(f"{code}: {message}" if message else code)
+    code: JevErrorCode
+    status: int
+
+    def __init__(self, code: JevErrorCode | str, message: str = "", status: int = 0) -> None:
+        code = JevErrorCode(code)
+        super().__init__(f"{code.value}: {message}" if message else code.value)
         self.code = code
         self.status = status
 
@@ -119,9 +134,7 @@ class JevClient:
 
     def ask(self, state: str, questions: dict) -> JevResult:
         if not self._api_key:
-            raise JevError("no_api_key", "Jev の API キーが見つからない")
-        if self._daily_limit is not None and self._today_count() >= self._daily_limit:
-            raise JevError("daily_limit", f"1日の上限 {self._daily_limit} 件に達した")
+            raise JevError(JevErrorCode.NO_API_KEY, "Jev の API キーが見つからない")
 
         body = json.dumps(
             {"state": state, "model": self._model, "questions": questions},
@@ -136,19 +149,24 @@ class JevClient:
         rate_retries = 0
         other_retried = False
         while True:
+            # 上限は送るたびに確かめる（やり直しでも超えない）。
+            if self._daily_limit is not None and self._today_count() >= self._daily_limit:
+                raise JevError(
+                    JevErrorCode.DAILY_LIMIT, f"1日の上限 {self._daily_limit} 件に達した"
+                )
             self._count_request()
             try:
                 response = self._client.post(
                     self._endpoint, content=body, headers=headers, timeout=self._timeout
                 )
             except httpx.TimeoutException as e:
-                err = JevError("timeout", self._detail(f"{type(e).__name__}: {e}"))
+                err = JevError(JevErrorCode.TIMEOUT, self._detail(f"{type(e).__name__}: {e}"))
                 if not other_retried:
                     other_retried = True
                     continue
                 raise err from None
             except httpx.HTTPError as e:
-                err = JevError("network", self._detail(f"{type(e).__name__}: {e}"))
+                err = JevError(JevErrorCode.NETWORK, self._detail(f"{type(e).__name__}: {e}"))
                 if not other_retried:
                     other_retried = True
                     continue
@@ -156,7 +174,9 @@ class JevClient:
 
             status = response.status_code
             if not 200 <= status < 300:
-                err = JevError("http", self._detail(f"HTTP {status}: {response.text}"), status)
+                err = JevError(
+                    JevErrorCode.HTTP, self._detail(f"HTTP {status}: {response.text}"), status
+                )
                 if status in _RATE_STATUSES:
                     if rate_retries < self._max_rate_retries:
                         self._sleep(_retry_wait(response.headers.get("retry-after"), rate_retries))
@@ -173,11 +193,13 @@ class JevClient:
                 data = json.loads(text)
             except ValueError:
                 raise JevError(
-                    "bad_response", self._detail(f"応答が JSON でない: {text}"), status
+                    JevErrorCode.BAD_RESPONSE, self._detail(f"応答が JSON でない: {text}"), status
                 ) from None
             if not isinstance(data, dict) or not isinstance(data.get("answers"), dict):
                 raise JevError(
-                    "bad_response", self._detail(f"応答に answers が無い: {text}"), status
+                    JevErrorCode.BAD_RESPONSE,
+                    self._detail(f"応答に answers が無い: {text}"),
+                    status,
                 )
             usage = data.get("usage")
             duration_ms = int((time.monotonic() - started) * 1000)
