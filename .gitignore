@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 秘密情報（API キーはコミットしない）
+.env
+.env.*
+!.env.example
+credentials.json
+*.pem
+*.key
+
+# pstack /statechart の出力
+docs/specs/statechart/JevsearchJob-statechart/
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
