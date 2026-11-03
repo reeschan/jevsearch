@@ -212,10 +212,64 @@ def test_select_engines_removes_duplicates_keeping_first(tmp_path):
     text = (
         "[search]\nallow_scrape = true\n"
         '[engines.official]\ngeneral = ["a", "b", "a"]\n'
-        '[engines.scrape]\ngeneral = ["b", "c", "c"]\n'
+        '[engines.scrape]\ngeneral = ["c", "d", "c"]\n'
     )
     config = load_config(_write(tmp_path, text))
-    assert select_engines(config, Genre.GENERAL, True) == ["a", "b", "c"]
+    assert select_engines(config, Genre.GENERAL, True) == ["a", "b", "c", "d"]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://api.typesafe.ai/v1/systemone",
+        "https://evil.example/v1",
+        "https://api.typesafe.ai.evil.example/v1",
+        "https://api.typesafe.ai@evil.example/v1",
+        "https://evil.example\\@api.typesafe.ai/v1",
+        "https://api.typesafe.ai:8443/v1",
+        "ftp://api.typesafe.ai/v1",
+        "api.typesafe.ai/v1",
+        "",
+    ],
+)
+def test_jev_endpoint_must_be_https_on_allowed_host(tmp_path, endpoint):
+    """never: API キーを、TypeSafe への認証ヘッダー以外に送らない"""
+    with pytest.raises(ConfigError, match=r"jev\.endpoint") as info:
+        load_config(_write(tmp_path, f'[jev]\nendpoint = "{endpoint.replace(chr(92), chr(92) * 2)}"\n'))
+    assert "evil" not in str(info.value)
+
+
+def test_jev_endpoint_default_and_allowed_host_load(tmp_path):
+    assert load_config(_write(tmp_path, "")).jev.endpoint == "https://api.typesafe.ai/v1/systemone"
+    config = load_config(_write(tmp_path, '[jev]\nendpoint = "https://API.typesafe.ai/v2/other"\n'))
+    assert config.jev.endpoint == "https://API.typesafe.ai/v2/other"
+
+
+@pytest.mark.parametrize("genre", [g.value for g in Genre])
+def test_empty_official_list_is_error(tmp_path, genre):
+    with pytest.raises(ConfigError, match=rf"engines\.official\.{genre}"):
+        load_config(_write(tmp_path, f"[engines.official]\n{genre} = []\n"))
+
+
+def test_empty_unspecified_list_is_error(tmp_path):
+    with pytest.raises(ConfigError, match=r"engines\.unspecified"):
+        load_config(_write(tmp_path, "[engines]\nunspecified = []\n"))
+
+
+def test_scrape_engine_in_unspecified_list_is_error(tmp_path):
+    with pytest.raises(ConfigError, match=r"engines\.unspecified.*google"):
+        load_config(_write(tmp_path, '[engines]\nunspecified = ["wikipedia", "google"]\n'))
+
+
+def test_scrape_engine_in_official_list_is_error(tmp_path):
+    # 別のジャンルの画面読み取り一覧にある名前でも拒む
+    with pytest.raises(ConfigError, match=r"engines\.official\.tech.*google_scholar"):
+        load_config(_write(tmp_path, '[engines.official]\ntech = ["github", "google_scholar"]\n'))
+
+
+def test_scrape_list_may_be_empty_and_defaults_load(isolated_home, tmp_path):
+    assert load_config(_write(tmp_path, "[engines.scrape]\nsns = []\n")).engines.scrape[Genre.SNS] == ()
+    assert load_config(None).version == "default"
 
 
 def test_scrape_engine_names_covers_all_genres_and_unspecified(isolated_home):

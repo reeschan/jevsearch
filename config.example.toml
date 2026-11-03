@@ -8,7 +8,7 @@
 # 検索エンジンの接続先（RustXNG）
 [rustxng]
 url = "http://127.0.0.1:29483"
-expected_version = "0.26.0"   # 接続先の版がこれと違うと警告する
+expected_version = "0.26.0"   # 結果ログに versions.rustxng として記録する値（接続先の版は調べない）
 timeout_seconds = 20
 
 [search]
@@ -16,6 +16,7 @@ max_results = 50              # 1ジョブの合計の上限（1〜200）。--ma
 allow_scrape = false          # 画面読み取りのエンジンを許す。CLI の --allow-scrape も要る（二重の許可）
 
 # ジャンルごとの公式エンジン（キーは paper / tech / news / sns / blog / general）
+# 空の一覧と、画面読み取りの一覧にある名前は入れられない（読み込みで拒む）
 [engines.official]
 paper = ["arxiv", "crossref", "semantic scholar", "openalex", "pubmed", "europepmc"]
 tech = ["github", "stack overflow", "hackernews", "mdn", "microsoft_learn", "gitlab", "crates.io", "npm"]
@@ -42,7 +43,7 @@ scrape_unspecified = ["google", "bing", "brave", "duckduckgo"]
 # Jev（分類モデル）
 [jev]
 model = "jev-1.14.0"          # 版を固定している。ほかの値は拒む
-endpoint = "https://api.typesafe.ai/v1/systemone"
+endpoint = "https://api.typesafe.ai/v1/systemone"   # https で api.typesafe.ai のみ許す（API キーを送る先のため）
 batch_size = 25               # 1回に送る結果の件数（20〜30）
 threshold = 0.55              # 確信度がこれ未満の判定は未分類にする（0〜1）
 max_request_tokens = 64000    # 1リクエストの入力トークン数の見積もりの上限

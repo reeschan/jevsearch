@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from jevsearch.models import JEV_MODEL, Genre
 
@@ -31,6 +32,9 @@ _SECRET_MARKERS = ("api_key", "apikey", "token", "secret", "password")
 
 # 上の語を含むが秘密ではないキー名（トークン数の上限など）
 _SECRET_KEY_ALLOWLIST = frozenset({"max_request_tokens"})
+
+JEV_ALLOWED_HOSTS = ("api.typesafe.ai",)
+"""jev.endpoint に使ってよいホスト名。API キーは TypeSafe への認証ヘッダー以外に送らない。"""
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -283,6 +287,44 @@ def _genre_lists(table: Mapping[str, Any], where: str) -> dict[Genre, tuple[str,
     return {Genre(k): _str_list(v, f"{where}.{k}") for k, v in table.items()}
 
 
+def _check_jev_endpoint(endpoint: str) -> None:
+    """jev.endpoint が https で、許可したホストであることを確かめる（値はメッセージに書かない）。"""
+    hosts = ", ".join(JEV_ALLOWED_HOSTS)
+    error = ConfigError(f"jev.endpoint は https で、ホストが {hosts} のものでなければならない")
+    if "\\" in endpoint or any(c.isspace() for c in endpoint):
+        raise error
+    try:
+        parsed = urlsplit(endpoint)
+        port = parsed.port
+    except ValueError:
+        raise error from None
+    if parsed.scheme != "https" or parsed.hostname not in JEV_ALLOWED_HOSTS:
+        raise error
+    if parsed.username is not None or parsed.password is not None or port not in (None, 443):
+        raise error
+
+
+def _check_engine_lists(engines: EnginesConfig) -> None:
+    """公式・未指定の一覧が空でなく、画面読み取りのエンジンを含まないことを確かめる。"""
+    scrape: set[str] = set(engines.scrape_unspecified)
+    for names in engines.scrape.values():
+        scrape.update(names)
+
+    lists: list[tuple[str, tuple[str, ...]]] = [
+        (f"engines.official.{genre.value}", names) for genre, names in engines.official.items()
+    ]
+    lists.append(("engines.unspecified", engines.unspecified))
+    for where, names in lists:
+        if not names:
+            raise ConfigError(f"{where} は空にできない")
+        for name in names:
+            if name in scrape:
+                raise ConfigError(
+                    f"{where} に画面読み取りのエンジンを入れてはいけない: {name}"
+                    "（engines.scrape / engines.scrape_unspecified に書く）"
+                )
+
+
 def _expand(path_text: str) -> Path:
     return Path(path_text).expanduser()
 
@@ -314,6 +356,7 @@ def _build(raw: Mapping[str, Any], version: str) -> Config:
         unspecified=_str_list(en["unspecified"], "engines.unspecified"),
         scrape_unspecified=_str_list(en["scrape_unspecified"], "engines.scrape_unspecified"),
     )
+    _check_engine_lists(engines)
 
     jv = _section(raw, "jev")
     limit = jv.get("daily_request_limit")
@@ -336,6 +379,7 @@ def _build(raw: Mapping[str, Any], version: str) -> Config:
     )
     if jev.model != JEV_MODEL:
         raise ConfigError(f"jev.model は {JEV_MODEL} でなければならない")
+    _check_jev_endpoint(jev.endpoint)
     if not 20 <= jev.batch_size <= 30:
         raise ConfigError("jev.batch_size は 20〜30 でなければならない")
     if not 0 <= jev.threshold <= 1:
