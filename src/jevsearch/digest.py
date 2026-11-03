@@ -52,20 +52,17 @@ def _label(value: object) -> str:
 
 
 def _select_rows(topic: str, day: date, rows: Iterable[dict]) -> list[dict]:
-    """topic と日付が合う行を、URL で重複を除いて最初に見えた順に返す。relevant が false は除く。"""
-    selected: list[dict] = []
-    seen: set[str] = set()
+    """topic と日付が合う行を、URL ごとに最後の行で決めて返す。
+
+    並びは URL が最初に見えた順。最後の行の relevant が false の URL は除く。
+    """
+    latest: dict[object, dict] = {}
     for row in rows:
         if row.get("topic") != topic or _row_date(row) != day:
             continue
-        if _judged(row, "relevant") is False:
-            continue
-        url = row.get("url")
-        if url in seen:
-            continue
-        seen.add(url)
-        selected.append(row)
-    return selected
+        # 同じキーへの代入は挿入順を変えないので、最初に見えた順のまま行だけ新しくなる。
+        latest[row.get("url")] = row
+    return [row for row in latest.values() if _judged(row, "relevant") is not False]
 
 
 def build_digest(topic: str, day: date, rows: Iterable[dict]) -> tuple[str, str, list[str]]:

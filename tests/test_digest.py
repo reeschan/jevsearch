@@ -136,7 +136,6 @@ def test_tags_にトピックと日付が入る():
 def test_本文の形と_URL_の重複除去と未分類():
     rows = [
         _row("https://a.example/1", title="一\n番", engine="brave", query="生成AI"),
-        _row("https://a.example/1", title="重複", query="別の語"),
         _row("https://b.example/2", type=None, genre=None, query="LLM"),
         _row("https://other.example/9", topic="other"),
     ]
@@ -145,9 +144,45 @@ def test_本文の形と_URL_の重複除去と未分類():
     assert "件数: 2" in content
     assert "- [news/tech] 一 番 — https://a.example/1（brave）" in content
     assert "- [?/?] title of https://b.example/2 — https://b.example/2（duckduckgo）" in content
-    assert "重複" not in content
     assert "https://other.example/9" not in content
-    assert "- 生成AI" in content and "- LLM" in content and "別の語" not in content
+    assert "- 生成AI" in content and "- LLM" in content
+
+
+def test_同じ_URL_は最後の行で決まり_最初に見えた順を保つ():
+    rows = [
+        _row("https://a.example/1", title="古い", genre="tech", query="語1"),
+        _row("https://b.example/2"),
+        _row("https://a.example/1", title="新しい", genre="news", query="語2"),
+    ]
+    _, content, _ = build_digest("ai", DAY, rows)
+    assert "件数: 2" in content
+    assert "古い" not in content and "語1" not in content
+    lines = [line for line in content.splitlines() if line.startswith("- [")]
+    assert lines == [
+        "- [news/news] 新しい — https://a.example/1（duckduckgo）",
+        "- [news/tech] title of https://b.example/2 — https://b.example/2（duckduckgo）",
+    ]
+
+
+def test_同じ_URL_の最後の行が_relevant_false_ならその_URL_を除く():
+    rows = [
+        _row("https://a.example/1", relevant=True),
+        _row("https://a.example/1", relevant=False, genre="news"),
+        {**_row("https://b.example/2"), "relevant": {"value": None, "by": "jev"}},
+    ]
+    _, content, _ = build_digest("ai", DAY, rows)
+    assert "https://a.example/1" not in content
+    assert "https://b.example/2" in content
+    assert "件数: 1" in content
+
+
+def test_同じ_URL_の最後の行が_true_なら_前の_false_を打ち消す():
+    rows = [
+        _row("https://a.example/1", relevant=False),
+        _row("https://a.example/1", relevant=True),
+    ]
+    _, content, _ = build_digest("ai", DAY, rows)
+    assert "https://a.example/1" in content
 
 
 def test_日付は行のオフセットのまま取る(monkeypatch):
