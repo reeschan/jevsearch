@@ -178,15 +178,6 @@ def test_usage_errors_return_2(tmp_path, argv):
     assert err
 
 
-@pytest.mark.parametrize("command", ["eval", "stats", "digest"])
-def test_other_subcommands_are_not_implemented(command):
-    deps = _deps()
-    code, out, err = _run([command], deps)
-    assert code == 2
-    assert out == ""
-    assert "未実装" in err
-
-
 def test_default_deps_factories_build_real_parts(tmp_path):
     transport = httpx.MockTransport(lambda request: httpx.Response(500))
     deps = Deps(env={}, http_transport=transport)
