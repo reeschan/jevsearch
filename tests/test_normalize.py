@@ -1,8 +1,11 @@
 """正規化（用語辞書）のテスト。辞書はテスト内で小さく作って渡す。"""
 
+import pytest
+
 from jevsearch.normalize import (
     Dictionary,
     Term,
+    _parse,
     load_bundled_dictionary,
     load_dictionary,
     normalize,
@@ -98,6 +101,30 @@ def test_辞書ファイルを読める(tmp_path):
     dictionary = load_dictionary(path)
     assert dictionary.version == "v9"
     assert dictionary.entries == (Term("サーバー", ("サーバ",), "server"),)
+
+
+@pytest.mark.parametrize(
+    ("data", "needle"),
+    [
+        ({"version": "1", "terms": "ユーザビリティ"}, "terms"),
+        ({"version": "1", "terms": ["ユーザビリティ"]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "a"}, 1]}, "terms[1]"),
+        ({"version": "1", "terms": [{"canonical": "ユーザビリティ", "aliases": "UX"}]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "x", "aliases": ["ok", ""]}]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "x", "aliases": ["ok", 3]}]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "ユーザビリティ", "en": 1}]}, "terms[0]"),
+    ],
+)
+def test_辞書の値の型が違えば_ValueError_で出どころと項目を示す(data, needle):
+    with pytest.raises(ValueError, match="src.toml") as excinfo:
+        _parse(data, "src.toml")
+    assert needle in str(excinfo.value)
+
+
+def test_型が正しい辞書はそのまま読める():
+    data = {"version": "1", "terms": [{"canonical": "a"}, {"canonical": "b", "aliases": ["c"], "en": "d"}]}
+    assert _parse(data, "t").entries == (Term("a"), Term("b", ("c",), "d"))
+    assert _parse({"version": "1"}, "t").entries == ()
 
 
 def test_同梱辞書が読めて_version_が空でない():

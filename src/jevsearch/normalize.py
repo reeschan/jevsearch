@@ -47,18 +47,27 @@ def _parse(data: dict, source: str) -> Dictionary:
     version = data.get("version")
     if not isinstance(version, str) or not version.strip():
         raise ValueError(f"{source}: version が空か、ありません")
+    terms = data.get("terms", [])
+    if not isinstance(terms, list):
+        raise ValueError(f"{source}: terms は [[terms]] の配列でなければなりません")
     entries: list[Term] = []
-    for i, raw in enumerate(data.get("terms", [])):
+    for i, raw in enumerate(terms):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{source}: terms[{i}] は表（table）でなければなりません")
         canonical = raw.get("canonical")
         if not isinstance(canonical, str) or not canonical.strip():
             raise ValueError(f"{source}: terms[{i}] に canonical がありません")
-        entries.append(
-            Term(
-                canonical=canonical,
-                aliases=tuple(raw.get("aliases", [])),
-                en=raw.get("en") or None,
+        aliases = raw.get("aliases", [])
+        if not isinstance(aliases, list) or not all(
+            isinstance(a, str) and a.strip() for a in aliases
+        ):
+            raise ValueError(
+                f"{source}: terms[{i}] の aliases は空でない文字列の配列でなければなりません"
             )
-        )
+        en = raw.get("en")
+        if en is not None and not isinstance(en, str):
+            raise ValueError(f"{source}: terms[{i}] の en は文字列でなければなりません")
+        entries.append(Term(canonical=canonical, aliases=tuple(aliases), en=en or None))
     return Dictionary(version=version, entries=tuple(entries))
 
 
