@@ -1,0 +1,37 @@
+stateDiagram-v2
+    %% 合意済みの図（agreed-verbatim.mmd）を statechart のパーサーが読める形に書き写したもの。
+    %% 変えたのは書き方だけ: 状態の id を ASCII にし（表示名は同じ）、終わりの [*] への矢印を外した（パーサーが終わりの状態を受け付けないため。4つの結末は出口のない状態のまま）。
+    %% 遷移・ラベル・状態の数は合意版と同じ。
+    state "受付" as Accepted
+    state "正規化" as Normalizing
+    state "検索中" as Searching
+    state "失敗" as Failed
+    state "0件" as NoResults
+    state "規則でタグ付け" as RuleTagging
+    state "Jevで分類" as JevClassify
+    state "保存済み" as Saved
+    state "一部だけ保存" as PartiallySaved
+    [*] --> Accepted: 検索語を受け取った
+    Accepted --> Normalizing: 検索を始めた
+    Normalizing --> Searching: 用語辞書で検索語をそろえ終えた
+    Searching --> Searching: 検索エンジンにつながらず、1回だけやり直す
+    Searching --> Failed: やり直しても検索エンジンにつながらず、結果が1件も届かなかった
+    Searching --> NoResults: どのエンジンからも結果が返ってこなかった
+    Searching --> RuleTagging: 結果が1件以上届いた
+    Searching --> RuleTagging: 一部の検索語は結果が届き、ほかはやり直してもつながらなかった
+    RuleTagging --> JevClassify: ドメインで分かる種類を付け終えた
+    JevClassify --> Saved: すべての検索語とエンジンが答え、Jev もすべて答えた
+    JevClassify --> PartiallySaved: 一部のエンジンか検索語が答えなかった
+    JevClassify --> PartiallySaved: Jev が使えない、または上限を超えたので未分類として残した
+
+    %% 合意済みの never（原文のまま。状態ではなくデータについての決まりなので、図の never 構文では書けない。
+    %% 生成した TLA+ にデータの変数を足し、1行ずつ INVARIANT にした）
+    %% 検索語と取得日時のない結果を保存しない
+    %% 検索語・タイトル・URL・抜粋と、内部のID・ドメイン名・エンジン名以外は Jev に送らない
+    %% API キーを、TypeSafe への認証ヘッダー以外に送らない
+    %% 確信度がしきい値より低い判定を「分類済み」として保存しない
+    %% 画面読み取りのエンジンを、オプションを付けていないのに呼ばない
+    %% 0件を失敗として記録しない
+    %% 一部のエンジンや Jev が失敗したことを理由に、取れた結果を捨てない
+    %% ドメイン規則で決まった種類を Jev の答えで上書きしない
+    %% API キーを結果ログ・記録・画面の表示に出さない
