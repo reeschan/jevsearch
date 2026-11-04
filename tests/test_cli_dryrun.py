@@ -134,6 +134,36 @@ def test_blank_query_is_usage_error(tmp_path, query):
     assert err
 
 
+@pytest.mark.parametrize("value", ["-1", "0", "201", "1000"])
+def test_max_outside_1_to_200_is_usage_error(tmp_path, value):
+    deps = _deps()
+    cfg = _config(tmp_path)
+    code, out, err = _run(["search", "rust", "--max", value, "--dry-run", "--config", str(cfg)], deps)
+    assert code == 2
+    assert out == ""
+    assert "--max" in err
+    assert "1〜200" in err
+
+
+@pytest.mark.parametrize("value", ["1", "200"])
+def test_max_at_the_bounds_is_accepted(tmp_path, value):
+    payload = _dry(tmp_path, "--max", value)
+    assert payload["rustxng"]["requests"][0]["params"]["max_results"] == value
+
+
+@pytest.mark.parametrize("topic", ["", "   ", "\t\n"])
+def test_blank_topic_is_usage_error(tmp_path, topic):
+    deps = _deps()
+    # 設定ファイルが無くても、設定を読む前に使い方のエラーで止まる。
+    code, out, err = _run(
+        ["search", "rust", "--topic", topic, "--dry-run", "--config", str(tmp_path / "no.toml")],
+        deps,
+    )
+    assert code == 2
+    assert out == ""
+    assert "--topic" in err
+
+
 def test_config_with_api_key_is_error(tmp_path):
     deps = _deps()
     cfg = _config(tmp_path, '[jev]\napi_key = "sk-test-SENTINEL-0000"\n')  # check-secrets: ignore

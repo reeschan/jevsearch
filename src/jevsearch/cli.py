@@ -62,6 +62,10 @@ EXIT_USAGE = 2
 
 _MEMORY_TIMEOUT_SECONDS = 30.0
 """共有メモリへの1回の通信を待つ秒数。"""
+MAX_RESULTS_MIN = 1
+"""--max の下限（search.max_results と同じ範囲）。"""
+MAX_RESULTS_MAX = 200
+"""--max の上限（search.max_results と同じ範囲）。"""
 
 _OUTCOME_NAMES: dict[Outcome, str] = {
     Outcome.SAVED: "保存済み",
@@ -337,8 +341,14 @@ def _run_search(args: argparse.Namespace, deps: Deps) -> int:
     if not args.query.strip():
         print("使い方のエラー: 検索語が空", file=deps.stderr)
         return EXIT_USAGE
-    if args.max_results is not None and args.max_results < 1:
-        print("使い方のエラー: --max は 1 以上", file=deps.stderr)
+    if args.topic is not None and not args.topic.strip():
+        print("使い方のエラー: --topic が空", file=deps.stderr)
+        return EXIT_USAGE
+    if args.max_results is not None and not MAX_RESULTS_MIN <= args.max_results <= MAX_RESULTS_MAX:
+        print(
+            f"使い方のエラー: --max は {MAX_RESULTS_MIN}〜{MAX_RESULTS_MAX} でなければならない",
+            file=deps.stderr,
+        )
         return EXIT_USAGE
 
     try:
