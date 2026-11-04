@@ -456,6 +456,20 @@ def test_nan_query_genre_does_not_block_a_valid_one_in_a_later_request():
     assert report.query_genre == Judgment("paper", JudgedBy.JEV, 0.7)
 
 
+def test_classified_query_genre_wins_over_a_more_confident_unclassified_one():
+    """never: 確信度がしきい値より低い判定を「分類済み」として保存しない。"""
+    from jevsearch.jev_classify import _best_genre
+
+    tech = Judgment(value="tech", by=JudgedBy.JEV, confidence=0.8)
+    unclassified = Judgment(value=None, by=JudgedBy.JEV, confidence=0.95)
+    assert _best_genre([tech, unclassified]) == tech
+    assert _best_genre([unclassified, tech]) == tech
+    # 分類済みがなければ、確信度がいちばん高い未分類（今までの規則）
+    lower = Judgment(value=None, by=JudgedBy.JEV, confidence=0.3)
+    assert _best_genre([lower, unclassified]) == unclassified
+    assert _best_genre([]) == UNCLASSIFIED
+
+
 def test_unexpected_exception_does_not_stop_the_job():
     """JevError 以外の例外でも全結果が返り、failure は unexpected:<クラス名>。"""
     ask = FakeAsk(error=ValueError("boom"))

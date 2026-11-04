@@ -390,11 +390,17 @@ class JevClassifier:
 
 
 def _best_genre(genres: Sequence[Judgment]) -> Judgment:
-    """確信度がいちばん高いもの。確信度のあるものがなければ未分類。"""
-    best = _unclassified()
-    for genre in genres:
-        if genre.confidence is None or not math.isfinite(genre.confidence):
-            continue
-        if best.confidence is None or genre.confidence > best.confidence:
-            best = genre
-    return best
+    """分類済み（value がある）もののうち確信度がいちばん高いもの。
+
+    分類済みがなければ、確信度がいちばん高い未分類。確信度のあるものもなければ未分類。
+    確信度が同じなら先のものを残す。
+    """
+    finite = [g for g in genres if g.confidence is not None and math.isfinite(g.confidence)]
+    for pool in ([g for g in finite if g.value is not None], finite):
+        best: Judgment | None = None
+        for genre in pool:
+            if best is None or (genre.confidence or 0) > (best.confidence or 0):
+                best = genre
+        if best is not None:
+            return best
+    return _unclassified()
