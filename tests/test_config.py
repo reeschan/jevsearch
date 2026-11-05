@@ -281,6 +281,11 @@ def test_scrape_engine_in_official_list_is_error(tmp_path):
         "http://127.0.0.1:abc",
         "http://127.0.0.1 :29483",
         "http://user:pw@127.0.0.1\\@evil.example",
+        "http://xn--zz.com",
+        "http://ab\u200b.com",
+        "http://a..b:8888",
+        "http://.example:8888",
+        "http://" + "a" * 64 + ".example",
         "",
     ],
 )

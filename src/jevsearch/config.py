@@ -321,11 +321,17 @@ def _check_rustxng_url(url: str) -> None:
     if parsed.scheme not in ("http", "https") or not hostname:
         raise error
     # 接続口が実際に要求する URL（末尾の / を落として検索のパスをつなぐ）を httpx に組ませる。
-    # ホスト名が符号化できないもの（xn--zz.com、ゼロ幅空白入りなど）は、要求のときに
+    # ホスト名が符号化できないもの（例えば xn--zz.com、ゼロ幅空白入りのもの）は、要求のときに
     # 例外になるので、読み込みで拒む
     try:
         httpx.URL(url.rstrip("/") + SEARCH_PATH).host  # noqa: B018
     except (httpx.InvalidURL, ValueError):
+        raise error from None
+    # httpx が通しても、ソケットの idna 符号化は空のラベルや63文字を超えるラベル
+    # （例えば a..b、.example、64文字の a のラベル）で UnicodeError になるので、ここでも拒む
+    try:
+        hostname.encode("idna")
+    except UnicodeError:
         raise error from None
 
 
