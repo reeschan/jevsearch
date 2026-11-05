@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
+
 from jevsearch.models import JEV_MODEL, Genre
+from jevsearch.search_request import SEARCH_PATH
 
 CONFIG_ENV_VAR = "JEVSEARCH_CONFIG"
 """設定ファイルの場所を指す環境変数の名前。"""
@@ -317,6 +320,13 @@ def _check_rustxng_url(url: str) -> None:
         raise error from None
     if parsed.scheme not in ("http", "https") or not hostname:
         raise error
+    # 接続口が実際に要求する URL（末尾の / を落として検索のパスをつなぐ）を httpx に組ませる。
+    # ホスト名が符号化できないもの（xn--zz.com、ゼロ幅空白入りなど）は、要求のときに
+    # 例外になるので、読み込みで拒む
+    try:
+        httpx.URL(url.rstrip("/") + SEARCH_PATH).host  # noqa: B018
+    except (httpx.InvalidURL, ValueError):
+        raise error from None
 
 
 def _check_engine_names(lists: list[tuple[str, tuple[str, ...]]]) -> None:

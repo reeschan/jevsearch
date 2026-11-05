@@ -299,7 +299,16 @@ def test_rustxng_url_message_does_not_hold_userinfo(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "url", ["http://127.0.0.1:29483", "https://rustxng.example/", "http://[::1]:8080", "http://localhost"]
+    "url",
+    [
+        "http://127.0.0.1:29483",
+        "https://rustxng.example/",
+        "http://[::1]:8080",
+        "http://localhost",
+        "http://127.0.0.1:8888",
+        "http://localhost:8888/x",
+        "https://search.example.com",
+    ],
 )
 def test_good_rustxng_url_loads(tmp_path, url):
     assert load_config(_write(tmp_path, f'[rustxng]\nurl = "{url}"\n')).rustxng.url == url

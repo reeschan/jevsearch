@@ -68,9 +68,10 @@ class RustxngAdapter:
         """GET して JSON の辞書を返す。接続エラー・HTTP エラー・JSON でない応答は None。"""
         try:
             response = self._client.get(url, params=params)
-        except (httpx.HTTPError, httpx.InvalidURL):
+        except (httpx.HTTPError, httpx.InvalidURL, UnicodeError):
             # TransportError のほか DecodingError（壊れた gzip など）と、
-            # InvalidURL（HTTPError ではない）も、つながらなかった扱いにする
+            # InvalidURL・UnicodeError（符号化できないホスト名の idna.IDNAError。
+            # どちらも HTTPError ではない）も、つながらなかった扱いにする
             return None
         if response.status_code >= 400:
             return None

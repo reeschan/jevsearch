@@ -155,6 +155,27 @@ def test_不正な接続先_URL_も接続エラーと同じく失敗にして例
     assert response.retried_queries == (Lang.JA, Lang.EN)
 
 
+@pytest.mark.parametrize("base_url", ["http://xn--zz.com", "http://ab​.com"])
+def test_符号化できないホスト名も接続エラーと同じく失敗にして例外を漏らさない(base_url):
+    """httpx は idna.IDNAError（UnicodeError）や InvalidURL を投げる。どちらも search() の外へ漏らさない。"""
+    server = Server({})
+    client = httpx.Client(transport=httpx.MockTransport(server))
+    adapter = RustxngAdapter(
+        base_url=base_url,
+        rustxng_version="v0.26.0",
+        scrape_engines=SCRAPE,
+        allow_scrape=False,
+        client=client,
+        clock=FakeClock(),
+    )
+    assert adapter._fetch(base_url + "/search", {"q": "x"}) is None
+    response = adapter.search(QUERY, ["wikipedia"], 50)
+
+    assert server.requests == []
+    assert response.verdict == SearchVerdict.FAILED
+    assert response.unreachable_queries == (Lang.JA, Lang.EN)
+
+
 def test_results_の一覧が無い_200_は壊れた応答としてやり直し_失敗にする():
     """遷移: やり直しても検索エンジンにつながらず、結果が1件も届かなかった"""
     query = NormalizedQuery(original="x", ja=JA_Q, en=None, dictionary_version="d1")
