@@ -309,8 +309,27 @@ def test_python_and_toml_ways_of_writing_a_key_are_found(tmp_path, template):
         'monkeypatch.setenv("{K}", "")',
         'monkeypatch.setenv("{K}", key)',
         'monkeypatch.delenv("{K}", raising=False)',
-        'os.environ.get("{K}", "default")',
-        'os.getenv("{K}", "default")',
+        'os.environ.get("{K}")',
+        'os.getenv("{K}")',
+        'os.environ.get("{K}", "")',
+        'os.getenv("{K}", "")',
+        'os.getenv("{K}", "<your key>")',
+        'os.environ.get("{K}", "${{X}}")',
+        'os.getenv("{K}", "{{{{ secrets.X }}}}")',
+        'os.getenv("{K}", default)',
+        "{A}: str",
+        "{A}: str | None = None",
+        "{A}: Optional[str] = None",
+        "def f({A}: str) -> None:",
+        "{A}: SomeLongTypeNameWithoutDigits",
+        "{A}: short1",
+        '{A}: ""',
+        "{A}: ''",
+        '{A}: "<your key>"',
+        '{{"{A}": ""}}',
+        "{A}: <your key>  # note",
+        '{A}: "{S}"  {I}',
+        "{A}: {S}  {I}",
         'JevClient({A}=key)',
         'JevClient({A}=os.environ["{K}"])',
         'JevClient({A}="")',
@@ -331,6 +350,51 @@ def test_references_placeholders_and_empty_values_are_allowed(tmp_path, template
     line = template.format(K=KEY_NAME, S=SENTINEL, A=API, I=IGNORE, UA=API.upper())
     done = _run(_write(tmp_path / "ok.py", line + "\n"))
     assert done.returncode == 0, (line, done.stderr)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        'os.getenv("{K}", "{S}")',
+        "os.getenv('{K}', '{S}')",
+        'os.environ.get("{K}", "{S}")',
+        'x = os.environ.get( "{K}" , "{S}" )',
+    ],
+)
+def test_literal_default_of_get_and_getenv_is_found(tmp_path, template):
+    line = template.format(K=KEY_NAME, S=SENTINEL)
+    target = _write(tmp_path / "x.py", line + "\n")
+    done = _run(target)
+    assert done.returncode == 1, line
+    assert SENTINEL not in done.stderr
+    assert f"{target}:1: " in done.stderr
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{{'{A}': '{S}'}}",
+        "{{\"{A}\": '{S}'}}",
+        "{{'{A}': \"{S}\"}}",
+        '{{"{A}": "{S}"}}',
+        '{A}: "{S}"',
+        "{A}: '{S}'",
+        "  {A}:   '{S}'",
+        "{UA}: '{S}'",
+        "Api_Key: \"{S}\"",
+        "{A}: {S}",
+        "{A}: {S}   ",
+        "{A}: {S}  # my key",
+        "  {A}: tsk_live_abcdefghijklmnop1",
+    ],
+)
+def test_api_key_with_other_quoting_and_yaml_is_found(tmp_path, template):
+    line = template.format(S=SENTINEL, A=API, UA=API.upper())
+    target = _write(tmp_path / "x.yaml", line + "\n")
+    done = _run(target)
+    assert done.returncode == 1, line
+    assert SENTINEL not in done.stderr
+    assert f"{target}:1: " in done.stderr
 
 
 def _load_module():

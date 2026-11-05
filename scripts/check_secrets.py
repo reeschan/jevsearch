@@ -17,9 +17,14 @@
     （例の `.env.example` は除く。大文字小文字は区別しない）
   - 環境変数名への代入: 名前に空でない値を代入している行（`os.environ[...] = "値"` も含む）
   - 環境変数名と値を渡す呼び出し: `setenv("名前", "値")`・`setdefault(...)`・`putenv(...)` など、
-    名前のあとに文字列の値が続く形（`get`・`getenv` の既定値は除く）
-  - `api_key` の値: JSON 風の `"api_key"` の文字列の値、キーワード引数や代入
-    （Python・TOML）で `api_key` に入れる文字列の値、添字への代入。値は空でない文字列
+    名前のあとに文字列の値が続く形。`get("名前", "値")`・`getenv("名前", "値")` の既定値に
+    書いた文字列も、鍵を書いたものとして見つける（値を書かない参照、空の既定値 `""`、
+    `<...>` などの穴は見つけない）
+  - `api_key` の値: `api_key`（大文字小文字は問わない。引用符なし・単引用符・二重引用符のキー）の
+    `:` のあとの空でない引用符付きの文字列（JSON・Python の辞書・YAML）、
+    `:` のあとの引用符なしの値（16文字以上の英数字・`_.-` で、数字を1つ以上含み、
+    行末か `#` の注釈まで。YAML）、キーワード引数や代入（Python・TOML）で `api_key` に入れる
+    文字列の値、添字への代入。型の注釈（`api_key: str`）は見つけない
   - Bearer トークン: `Bearer ` のあとに16文字以上の英数字・`-_.` が続く行
 値が `<...>`・`${...}`・`${{ ... }}`・`{{ ... }}` で包まれているものは、
 鍵ではなく書き込み用の穴や参照とみなす。
@@ -61,10 +66,14 @@ _ASSIGN_RE = re.compile(
 )
 _BARE_NON_VALUE_START = ("$", "<", "%", "{")
 """引用符なしの値がこれで始まるなら、値ではなく参照や書き込み用の穴とみなす。"""
-_JSON_KEY_RE = re.compile(r""""api_key"\s*:\s*"(?P<value>[^"\n]+)\"""")
+_KEY_FIELD = r"""(?:"api_key"|'api_key'|\bapi_key\b)"""
+_COLON_QUOTED_RE = re.compile(rf"""{_KEY_FIELD}\s*:\s*(?P<value>{_QUOTED})""", re.IGNORECASE)
+"""`api_key` の `:` のあとの引用符付きの値（JSON・Python の辞書・YAML）。"""
+_COLON_BARE_RE = re.compile(
+    rf"""{_KEY_FIELD}\s*:\s*(?P<value>[A-Za-z0-9_.\-]{{16,}})\s*(?:#.*)?$""", re.IGNORECASE
+)
+"""`api_key` の `:` のあとの引用符なしの値（YAML）。数字を含むものだけを値とみなす。"""
 _ENV_CALL_RE = re.compile(rf"""["']{_KEY_NAME}["']\s*,\s*(?P<value>{_QUOTED})""")
-_ENV_READ_CALL_RE = re.compile(r"\b(?:get|getenv)\s*\(\s*$")
-"""名前の直前が `get(`・`getenv(` なら、2つ目の引数は既定値で、鍵を書き込むものではない。"""
 _API_KEY_ASSIGN_RE = re.compile(
     rf"""api_key["']?\]?(?:\s*:\s*[\w.\[\], |]+?)?\s*=(?!=)\s*(?P<value>{_QUOTED})""",
     re.IGNORECASE,
@@ -105,8 +114,6 @@ def _assign_found(line: str) -> bool:
 
 def _env_call_found(line: str) -> bool:
     for match in _ENV_CALL_RE.finditer(line):
-        if _ENV_READ_CALL_RE.search(line[: match.start()]):
-            continue
         if not _is_placeholder(match.group("value")[1:-1]):
             return True
     return False
@@ -118,8 +125,14 @@ def _is_key_name_constant(value: str) -> bool:
 
 
 def _api_key_found(line: str) -> bool:
-    if any(not _is_placeholder(m.group("value")) for m in _JSON_KEY_RE.finditer(line)):
-        return True
+    for match in _COLON_QUOTED_RE.finditer(line):
+        value = match.group("value")[1:-1]
+        if not _is_key_name_constant(value) and not _is_placeholder(value):
+            return True
+    for match in _COLON_BARE_RE.finditer(line):
+        value = match.group("value")
+        if any(c.isdigit() for c in value) and not _is_key_name_constant(value):
+            return True
     for match in _API_KEY_ASSIGN_RE.finditer(line):
         value = match.group("value")[1:-1]
         if not _is_key_name_constant(value) and not _is_placeholder(value):
