@@ -66,6 +66,7 @@ KIND_BEARER = "Bearer トークン"
 
 _CREDENTIAL_FILENAMES = ("credentials.json", ".env")
 _ENV_EXAMPLE = ".env.example"
+_PYTHON_SUFFIXES = (".py", ".pyi")
 
 _QUOTED = r"""(?:"[^"\n]+"|'[^'\n]+')"""
 _ASSIGN_RE = re.compile(
@@ -157,7 +158,7 @@ def _api_key_found(line: str, *, python: bool = False) -> bool:
 
 
 def _is_python_file(path: str) -> bool:
-    return Path(path).suffix.lower() in (".py", ".pyi")
+    return Path(path).suffix.lower() in _PYTHON_SUFFIXES
 
 
 def _line_kinds(line: str, *, python: bool = False) -> list[str]:
