@@ -734,6 +734,68 @@ def test_digest_is_written_once_then_superseded_on_the_same_day(tmp_path):
     assert [job["reasons"]["digest_failure"] for job in _jobs(tmp_path)] == [None, None]
 
 
+class RelevanceJev(FakeJev):
+    """relevant の問いに、確率 p_relevant で答える fake（ほかの問いは FakeJev と同じ）。"""
+
+    def __init__(self, p_relevant: float) -> None:
+        super().__init__()
+        self.p_relevant = p_relevant
+
+    def __call__(self, state: str, questions: dict) -> JevResult:
+        result = super().__call__(state, questions)
+        for key in result.answers:
+            if key.startswith("relevant_"):
+                result.answers[key] = {
+                    "probabilities": {"1": self.p_relevant, "0": 1 - self.p_relevant}
+                }
+        return result
+
+
+def test_digest_drops_a_url_that_a_later_search_judges_not_relevant(tmp_path):
+    """同じ日の2回目の検索で関係ないと判定された URL は、その日のダイジェストから外れる。
+
+    2回目は関係ない URL だけが返っても、前のダイジェストを 件数 0 で置き換える。
+    """
+    url = "https://site2.example.org/page/2"
+    memory = FakeMemory()
+    search = FakeSearch(_response(results=(_result(2),)))
+    code, _, err = _run(
+        tmp_path, _deps(search=search, jev=RelevanceJev(0.9), memory=memory), "--topic", "t"
+    )
+    assert code == 0, err
+    assert url in memory.writes[0]["content"]
+
+    code, _, err = _run(
+        tmp_path, _deps(search=search, jev=RelevanceJev(0.1), memory=memory), "--topic", "t"
+    )
+    assert code == 0, err
+    assert len(memory.writes) == 2
+    newest = memory.writes[1]
+    assert newest["supersedes"] == "M1"
+    assert url not in newest["content"]
+    assert "- 件数: 0" in newest["content"]
+    assert "- （なし）" in newest["content"]
+    job = _jobs(tmp_path)[1]
+    assert job["outcome"] == "saved"
+    assert job["reasons"]["digest_failure"] is None
+    # 結果ログには関係ないという判定のまま残る（捨てない）
+    assert _rows(tmp_path)[1]["relevant"]["value"] is False
+
+
+def test_digest_is_not_written_when_every_result_is_irrelevant_and_none_exists(tmp_path):
+    """前のダイジェストが無ければ、関係ない結果だけの検索では何も書かない（失敗にもしない）。"""
+    memory = FakeMemory()
+    search = FakeSearch(_response(results=(_result(2),)))
+    code, _, err = _run(
+        tmp_path, _deps(search=search, jev=RelevanceJev(0.1), memory=memory), "--topic", "t"
+    )
+    assert code == 0, err
+    assert memory.writes == []
+    (job,) = _jobs(tmp_path)
+    assert job["outcome"] == "saved"
+    assert job["reasons"]["digest_failure"] is None
+
+
 def _results_retrieved_at(*moments: datetime) -> tuple[SearchResult, ...]:
     return tuple(
         dataclasses.replace(_result(n), retrieved_at=moment)

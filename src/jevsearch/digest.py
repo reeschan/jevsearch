@@ -161,9 +161,12 @@ class DigestWriter:
     def _try_upsert(
         self, topic: str, day: date, rows: list[dict]
     ) -> tuple[str | None, str | None]:
-        """書き残しには触らない。失敗は例外のまま出る。"""
-        if not _select_rows(topic, day, rows):
-            return None, NO_ROWS
+        """書き残しには触らない。失敗は例外のまま出る。
+
+        対象の行が0件のときも、同じ topic・日付の前のダイジェスト（索引、なければ共有メモリの
+        検索で見つけたもの）があれば、それを `supersedes` に指して 件数 0 の版を書く。
+        前のダイジェストが無ければ何も書かず (None, NO_ROWS)。
+        """
         title, content, tags = build_digest(topic, day, rows)
         key = f"{topic}|{day.isoformat()}"
         index = self._read_index()
@@ -176,6 +179,10 @@ class DigestWriter:
                 if memory.get("title") == title and memory.get("id"):
                     supersedes = memory["id"]
                     break
+        # 対象の行が0件でも、前のダイジェストがあれば 件数 0 で置き換える（関係ないと
+        # 判定された URL を残さない）。前のダイジェストも無ければ何も書かない。
+        if supersedes is None and not _select_rows(topic, day, rows):
+            return None, NO_ROWS
         new_id = self._memory.write(
             title=title,
             content=content,
@@ -191,7 +198,10 @@ class DigestWriter:
         return new_id, None
 
     def upsert(self, topic: str, day: date, rows: Iterable[dict]) -> tuple[str | None, str | None]:
-        """(新しい id, 失敗の理由)。対象の行が0件なら何も書かず (None, "no_rows")。"""
+        """(新しい id, 失敗の理由)。
+
+        対象の行が0件で前のダイジェストも無ければ、何も書かず (None, "no_rows")。
+        """
         try:
             return self._try_upsert(topic, day, list(rows))
         except Exception as e:

@@ -63,8 +63,9 @@ def _write_digest(
 ) -> str | None:
     """ダイジェストを書く。書けなかった理由を返す（書けたとき・書く対象がないときは None）。
 
-    日付は、このジョブの（relevant が false でない）行の retrieved_at の日付ごと（行に書かれた
-    オフセットのまま）。日ごとに1回 `upsert` する（ふつうは1日）。
+    日付は、このジョブの全行（relevant が false のものも含む）の retrieved_at の日付ごと（行に
+    書かれたオフセットのまま）。日ごとに1回 `upsert` する（ふつうは1日）。そのためこの検索で
+    関係ないと判定された URL も、その日の前のダイジェストから外れる。
     """
     if request.topic is None or digest is None or not config.memory.enabled:
         return None
@@ -86,13 +87,11 @@ def _write_digest(
 
 
 def _job_days(request: JobRequest, rows: list[dict]) -> list[datetime.date]:
-    """このジョブの行の retrieved_at の日付を、最初に見えた順に重複なく返す。"""
+    """このジョブの行（job_id と topic が合うもの。relevant は問わない）の retrieved_at の日付を、
+    最初に見えた順に重複なく返す。"""
     days: list[datetime.date] = []
     for row in rows:
         if row.get("job_id") != request.job_id or row.get("topic") != request.topic:
-            continue
-        relevant = row.get("relevant")
-        if isinstance(relevant, dict) and relevant.get("value") is False:
             continue
         try:
             day = datetime.datetime.fromisoformat(row["retrieved_at"]).date()

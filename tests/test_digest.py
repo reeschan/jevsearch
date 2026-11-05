@@ -297,12 +297,59 @@ def test_retry_pending_は実行中に足された行を失わない(tmp_path):
     assert [(p["topic"], p["date"]) for p in _pending(tmp_path)] == [("ai", "2026-11-04")]
 
 
-def test_対象の行が0件なら_write_せず_no_rows_を返す(tmp_path):
+def test_対象の行が0件で前のダイジェストが無ければ_write_せず_no_rows_を返す(tmp_path):
     memory = FakeMemory()
     writer = _writer(tmp_path, memory)
-    writer.upsert("ai", DAY, ROWS)  # 前の1件
     rows = [_row("https://x.example/1", relevant=False), _row("https://y.example/2", topic="x")]
     assert writer.upsert("ai", DAY, rows) == (None, "no_rows")
-    assert len(memory.writes) == 1  # 増えていない（前の1件を supersedes で外さない）
-    assert _pending(tmp_path) == []
     assert writer.upsert("ai", DAY, []) == (None, "no_rows")
+    assert memory.writes == []
+    assert _pending(tmp_path) == []
+    assert not (tmp_path / "digest-index.json").exists()
+
+
+def test_対象の行が0件でも_index_に前のダイジェストがあれば_件数0で置き換える(tmp_path):
+    memory = FakeMemory()
+    writer = _writer(tmp_path, memory)
+    first, _ = writer.upsert("ai", DAY, ROWS)  # 前のダイジェスト
+    rows = [
+        _row("https://a.example/1", relevant=False),
+        _row("https://b.example/2", relevant=False),
+        _row("https://y.example/2", topic="x"),
+    ]
+    new_id, reason = writer.upsert("ai", DAY, ROWS + rows)
+    assert (new_id, reason) == ("ID2", None)
+    write = memory.writes[1]
+    assert write["supersedes"] == first
+    assert "- 件数: 0" in write["content"]
+    assert "- （なし）" in write["content"]
+    assert "https://a.example/1" not in write["content"]
+    assert "https://b.example/2" not in write["content"]
+    index = json.loads((tmp_path / "digest-index.json").read_text(encoding="utf-8"))
+    assert index["ai|2026-11-03"] == "ID2"
+    assert _pending(tmp_path) == []
+
+
+def test_対象の行が0件でも_search_で見つけた前のダイジェストがあれば_置き換える(tmp_path):
+    rows = [_row("https://a.example/1", relevant=False)]
+    title, _, _ = build_digest("ai", DAY, rows)
+    memory = FakeMemory(existing=[{"id": "OLD", "title": title}])
+    new_id, reason = _writer(tmp_path, memory).upsert("ai", DAY, rows)
+    assert (new_id, reason) == ("ID1", None)
+    assert memory.writes[0]["supersedes"] == "OLD"
+    assert "- 件数: 0" in memory.writes[0]["content"]
+    assert memory.searches[0]["tags"] == ["news:radar-bot:ai"]
+
+
+def test_retry_pending_は行が0件でも前のダイジェストがあれば置き換える(tmp_path):
+    _writer(tmp_path, FakeMemory(fail=ConnectionError("down"))).upsert("ai", DAY, ROWS)
+    assert len(_pending(tmp_path)) == 1
+    (tmp_path / "digest-index.json").write_text(
+        json.dumps({"ai|2026-11-03": "PREV"}), encoding="utf-8"
+    )
+    memory = FakeMemory()
+    rows = [_row("https://a.example/1", relevant=False)]
+    assert _writer(tmp_path, memory).retry_pending(rows) == (1, 0)
+    assert memory.writes[0]["supersedes"] == "PREV"
+    assert "- 件数: 0" in memory.writes[0]["content"]
+    assert _pending(tmp_path) == []
