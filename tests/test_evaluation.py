@@ -437,8 +437,8 @@ def test_batch_vs_single_passes_normalized_japanese_query():
             return [], _report()
 
     rows = [
-        _log_row("J1", 1, "a", query="ユーザビリティ", query_norm={"ja": "UX", "en": None}),
-        _log_row("J1", 2, "b", query="ユーザビリティ", query_norm={"ja": "UX", "en": None}),
+        _log_row("J1", 1, "a", query="ユーザービリティ", query_norm={"ja": "UX", "en": None}),
+        _log_row("J1", 2, "b", query="ユーザービリティ", query_norm={"ja": "UX", "en": None}),
         _log_row("J2", 1, "c", query="未正規化", query_norm=None),
         _log_row("J3", 1, "d", query="ja なし", query_norm={"ja": None, "en": "x"}),
         _log_row("J4", 1, "e", query="キーなし", query_norm={"en": "x"}),

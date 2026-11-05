@@ -106,13 +106,13 @@ def test_辞書ファイルを読める(tmp_path):
 @pytest.mark.parametrize(
     ("data", "needle"),
     [
-        ({"version": "1", "terms": "ユーザビリティ"}, "terms"),
-        ({"version": "1", "terms": ["ユーザビリティ"]}, "terms[0]"),
+        ({"version": "1", "terms": "ユーザービリティ"}, "terms"),
+        ({"version": "1", "terms": ["ユーザービリティ"]}, "terms[0]"),
         ({"version": "1", "terms": [{"canonical": "a"}, 1]}, "terms[1]"),
-        ({"version": "1", "terms": [{"canonical": "ユーザビリティ", "aliases": "UX"}]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "ユーザービリティ", "aliases": "UX"}]}, "terms[0]"),
         ({"version": "1", "terms": [{"canonical": "x", "aliases": ["ok", ""]}]}, "terms[0]"),
         ({"version": "1", "terms": [{"canonical": "x", "aliases": ["ok", 3]}]}, "terms[0]"),
-        ({"version": "1", "terms": [{"canonical": "ユーザビリティ", "en": 1}]}, "terms[0]"),
+        ({"version": "1", "terms": [{"canonical": "ユーザービリティ", "en": 1}]}, "terms[0]"),
     ],
 )
 def test_辞書の値の型が違えば_ValueError_で出どころと項目を示す(data, needle):
