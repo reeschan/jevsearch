@@ -313,6 +313,8 @@ def test_rustxng_url_message_does_not_hold_userinfo(tmp_path):
         "http://127.0.0.1:8888",
         "http://localhost:8888/x",
         "https://search.example.com",
+        "http://مثال1.example:8888",
+        "http://" + "ß" * 32 + ".example",
     ],
 )
 def test_good_rustxng_url_loads(tmp_path, url):

@@ -324,13 +324,17 @@ def _check_rustxng_url(url: str) -> None:
     # ホスト名が符号化できないもの（例えば xn--zz.com、ゼロ幅空白入りのもの）は、要求のときに
     # 例外になるので、読み込みで拒む
     try:
-        httpx.URL(url.rstrip("/") + SEARCH_PATH).host  # noqa: B018
+        request_url = httpx.URL(url.rstrip("/") + SEARCH_PATH)
+        request_url.host  # noqa: B018
+        raw_host = request_url.raw_host
     except (httpx.InvalidURL, ValueError):
         raise error from None
     # httpx が通しても、ソケットの idna 符号化は空のラベルや63文字を超えるラベル
-    # （例えば a..b、.example、64文字の a のラベル）で UnicodeError になるので、ここでも拒む
+    # （例えば a..b、.example、64文字の a のラベル）で UnicodeError になるので、ここでも拒む。
+    # ソケットが受け取るのは httpx が ASCII にした名前なので、その名前で確かめる（Unicode の
+    # ままだと、要求できる国際化ドメイン名（例えば مثال1.example）まで拒んでしまう）
     try:
-        hostname.encode("idna")
+        raw_host.decode("ascii").encode("idna")
     except UnicodeError:
         raise error from None
 
