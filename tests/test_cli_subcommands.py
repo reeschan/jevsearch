@@ -508,6 +508,28 @@ def test_digest_retry_writes_the_pending_day_and_exits_0(tmp_path):
     assert index == {f"t1|{day}": "M1"}
 
 
+def test_digest_retry_keeps_a_digest_with_content_when_the_result_log_has_no_rows(tmp_path):
+    """結果ログが無い（行が1件も無い）ときは、索引に前のダイジェストがあっても空で置き換えない。"""
+    cfg = _write_config(tmp_path)
+    day = T0.date().isoformat()
+    _write_pending(tmp_path, [{"topic": "t1", "date": day, "error": "RuntimeError: down"}])
+    index_path = tmp_path / "data" / "digest-index.json"
+    index_path.write_text(json.dumps({f"t1|{day}": "PREV"}), encoding="utf-8")
+    memory = FakeMemory()
+
+    def make_memory(config):
+        return memory
+
+    code, out, err = _run(
+        ["digest", "--retry", "--config", str(cfg)], _deps(make_memory_client=make_memory)
+    )
+    assert code == 0, err
+    assert out == "書けた 0 件・まだ 0 件\n"
+    assert memory.writes == []
+    assert _pending_entries(tmp_path) == []
+    assert json.loads(index_path.read_text(encoding="utf-8")) == {f"t1|{day}": "PREV"}
+
+
 def test_digest_retry_exits_1_for_as_long_as_the_memory_keeps_failing(tmp_path):
     cfg = _write_config(tmp_path)
     day = T0.date().isoformat()

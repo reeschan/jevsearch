@@ -166,10 +166,16 @@ class DigestWriter:
     ) -> tuple[str | None, str | None]:
         """書き残しには触らない。失敗は例外のまま出る。
 
-        対象の行が0件のときも、同じ topic・日付の前のダイジェスト（索引、なければ共有メモリの
-        検索で見つけたもの）があれば、それを `supersedes` に指して 件数 0 の版を書く。
-        前のダイジェストが無ければ何も書かず (None, NO_ROWS)。
+        rows に、topic と日付が合う行（`_select_rows` と同じ合わせ方）が1行も無ければ、
+        前のダイジェストを探さず何も書かず (None, NO_ROWS)。`upsert`（ジョブはその日の行を
+        必ず渡す）も `retry_pending`（結果ログに行が無いときがある）も同じ。
+        合う行があって、どれも選ばれない（どの URL も最後の行が relevant false）ときは、
+        同じ topic・日付の前のダイジェスト（索引、なければ共有メモリの検索で見つけたもの）が
+        あれば、それを `supersedes` に指して 件数 0 の版を書く。前のものも無ければ
+        (None, NO_ROWS) で何も書かない。
         """
+        if not any(row.get("topic") == topic and _row_date(row) == day for row in rows):
+            return None, NO_ROWS
         title, content, tags = build_digest(topic, day, rows)
         key = f"{topic}|{day.isoformat()}"
         index = self._read_index()
@@ -182,8 +188,8 @@ class DigestWriter:
                 if memory.get("title") == title and memory.get("id"):
                     supersedes = memory["id"]
                     break
-        # 対象の行が0件でも、前のダイジェストがあれば 件数 0 で置き換える（関係ないと
-        # 判定された URL を残さない）。前のダイジェストも無ければ何も書かない。
+        # 合う行はあるが全部 relevant false のとき、前のダイジェストがあれば 件数 0 で
+        # 置き換える（関係ないと判定された URL を残さない）。前のものも無ければ何も書かない。
         if supersedes is None and not _select_rows(topic, day, rows):
             return None, NO_ROWS
         new_id = self._memory.write(
@@ -203,7 +209,9 @@ class DigestWriter:
     def upsert(self, topic: str, day: date, rows: Iterable[dict]) -> tuple[str | None, str | None]:
         """(新しい id, 失敗の理由)。
 
-        対象の行が0件で前のダイジェストも無ければ、何も書かず (None, "no_rows")。
+        rows に topic と日付が合う行が1行も無ければ、何も書かず (None, "no_rows")。合う行が
+        あって全部 relevant false のときは、前のダイジェストがあれば 件数 0 の版で置き換え、
+        無ければ何も書かず (None, "no_rows")。
         """
         try:
             return self._try_upsert(topic, day, list(rows))
@@ -218,8 +226,10 @@ class DigestWriter:
     def retry_pending(self, rows: Iterable[dict]) -> tuple[int, int]:
         """(書けた数, まだ書けない数)。例外で書けなかったものだけを書き残しに残す。
 
-        対象の行が無い（no_rows）ものと、日付が読めないものは、あとで行が増えることが
-        無いので書き残しから外し、書けた数にも まだ書けない数にも数えない。
+        rows に topic と日付が合う行が1行も無い（no_rows）ものは、前のダイジェストがあっても
+        何も書かず、書き残しから外す。日付が読めないものも外す。どちらも書けた数にも
+        まだ書けない数にも数えない。合う行が全部 relevant false で前のダイジェストがあるものは、
+        件数 0 の版で置き換えて書けた数に数える。
         最初に読んだあとで他から足された行は、そのまま残す。
         """
         rows = list(rows)

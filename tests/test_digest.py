@@ -346,7 +346,60 @@ def test_対象の行が0件でも_search_で見つけた前のダイジェス�
     assert memory.searches[0]["tags"] == ["news:radar-bot:ai"]
 
 
-def test_retry_pending_は行が0件でも前のダイジェストがあれば置き換える(tmp_path):
+def _seed_pending_with_digest(tmp_path):
+    """前のダイジェスト ID1 が索引にあり、同じ日の書き残しが1件ある状態。"""
+    memory = FakeMemory()
+    writer = _writer(tmp_path, memory)
+    assert writer.upsert("ai", DAY, ROWS) == ("ID1", None)
+    (tmp_path / "digest-pending.jsonl").write_text(
+        json.dumps({"topic": "ai", "date": "2026-11-03", "error": "X"}) + "\n", encoding="utf-8"
+    )
+    return memory, writer
+
+
+def _index_id(tmp_path):
+    index = json.loads((tmp_path / "digest-index.json").read_text(encoding="utf-8"))
+    return index["ai|2026-11-03"]
+
+
+def test_retry_pending_は結果の行が無ければ内容のあるダイジェストを空で置き換えない(tmp_path):
+    memory, writer = _seed_pending_with_digest(tmp_path)
+    assert writer.retry_pending([]) == (0, 0)
+    assert len(memory.writes) == 1
+    assert _pending(tmp_path) == []
+    assert _index_id(tmp_path) == "ID1"
+
+
+def test_retry_pending_は別の日と別のトピックの行だけなら何も書かず書き残しを外す(tmp_path):
+    memory, writer = _seed_pending_with_digest(tmp_path)
+    rows = [
+        _row("https://a.example/1", at="2026-11-04T09:00:00+09:00"),
+        _row("https://a.example/1", topic="x"),
+        _row("https://c.example/3", relevant=False, topic="x"),
+    ]
+    searches = len(memory.searches)
+    assert writer.retry_pending(rows) == (0, 0)
+    assert len(memory.writes) == 1
+    assert len(memory.searches) == searches  # 前のダイジェストを探しにも行かない
+    assert _pending(tmp_path) == []
+    assert _index_id(tmp_path) == "ID1"
+
+
+def test_retry_pending_は合う行が全部_relevant_false_なら件数0の版で置き換える(tmp_path):
+    memory, writer = _seed_pending_with_digest(tmp_path)
+    rows = [
+        _row("https://a.example/1", relevant=False),
+        _row("https://b.example/2", relevant=False),
+    ]
+    assert writer.retry_pending(rows) == (1, 0)
+    assert len(memory.writes) == 2
+    assert memory.writes[1]["supersedes"] == "ID1"
+    assert "- 件数: 0" in memory.writes[1]["content"]
+    assert _pending(tmp_path) == []
+    assert _index_id(tmp_path) == "ID2"
+
+
+def test_retry_pending_は選ばれる行が0件でも前のダイジェストがあれば置き換える(tmp_path):
     _writer(tmp_path, FakeMemory(fail=ConnectionError("down"))).upsert("ai", DAY, ROWS)
     assert len(_pending(tmp_path)) == 1
     (tmp_path / "digest-index.json").write_text(
