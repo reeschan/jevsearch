@@ -7,7 +7,7 @@
 
 # 検索エンジンの接続先（RustXNG）
 [rustxng]
-url = "http://127.0.0.1:29483"
+url = "http://127.0.0.1:29483"   # http か https の URL（ホスト名つき）
 expected_version = "0.26.0"   # 結果ログに versions.rustxng として記録する値（接続先の版は調べない）
 timeout_seconds = 20
 
@@ -17,6 +17,7 @@ allow_scrape = false          # 画面読み取りのエンジンを許す。CLI
 
 # ジャンルごとの公式エンジン（キーは paper / tech / news / sns / blog / general）
 # 空の一覧と、画面読み取りの一覧にある名前は入れられない（読み込みで拒む）
+# エンジン名は空・空白だけ・前後に空白・カンマ入りにできない（scrape の一覧も同じ）
 [engines.official]
 paper = ["arxiv", "crossref", "semantic scholar", "openalex", "pubmed", "europepmc"]
 tech = ["github", "stack overflow", "hackernews", "mdn", "microsoft_learn", "gitlab", "crates.io", "npm"]

@@ -134,6 +134,27 @@ def test_カンマを含む要素は分けてから画面読み取りの名前�
         assert request.url.params["engines"] == "wikipedia"
 
 
+def test_不正な接続先_URL_も接続エラーと同じく失敗にして例外を漏らさない():
+    """httpx.InvalidURL は HTTPError ではない。search() の外へ漏れず、失敗の結末になる。"""
+    server = Server({})
+    client = httpx.Client(transport=httpx.MockTransport(server))
+    adapter = RustxngAdapter(
+        base_url="http://[::1",
+        rustxng_version="v0.26.0",
+        scrape_engines=SCRAPE,
+        allow_scrape=False,
+        client=client,
+        clock=FakeClock(),
+    )
+    response = adapter.search(QUERY, ["wikipedia"], 50)
+
+    assert server.requests == []
+    assert response.verdict == SearchVerdict.FAILED
+    assert response.results == ()
+    assert response.unreachable_queries == (Lang.JA, Lang.EN)
+    assert response.retried_queries == (Lang.JA, Lang.EN)
+
+
 def test_results_の一覧が無い_200_は壊れた応答としてやり直し_失敗にする():
     """遷移: やり直しても検索エンジンにつながらず、結果が1件も届かなかった"""
     query = NormalizedQuery(original="x", ja=JA_Q, en=None, dictionary_version="d1")

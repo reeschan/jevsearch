@@ -267,6 +267,85 @@ def test_scrape_engine_in_official_list_is_error(tmp_path):
         load_config(_write(tmp_path, '[engines.official]\ntech = ["github", "google_scholar"]\n'))
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::1",
+        "127.0.0.1:29483",
+        "localhost:29483",
+        "ftp://127.0.0.1:29483",
+        "file:///tmp/x",
+        "http://",
+        "http:///search",
+        "http://127.0.0.1:99999",
+        "http://127.0.0.1:abc",
+        "http://127.0.0.1 :29483",
+        "http://user:pw@127.0.0.1\\@evil.example",
+        "",
+    ],
+)
+def test_bad_rustxng_url_is_error(tmp_path, url):
+    text = f'[rustxng]\nurl = "{url.replace(chr(92), chr(92) * 2)}"\n'
+    with pytest.raises(ConfigError, match=r"rustxng\.url") as info:
+        load_config(_write(tmp_path, text))
+    assert url not in str(info.value) or url == ""
+
+
+def test_rustxng_url_message_does_not_hold_userinfo(tmp_path):
+    with pytest.raises(ConfigError, match=r"rustxng\.url") as info:
+        load_config(_write(tmp_path, '[rustxng]\nurl = "ftp://alice:s3cret-pw@host"\n'))
+    assert "alice" not in str(info.value)
+    assert "s3cret-pw" not in str(info.value)
+
+
+@pytest.mark.parametrize(
+    "url", ["http://127.0.0.1:29483", "https://rustxng.example/", "http://[::1]:8080", "http://localhost"]
+)
+def test_good_rustxng_url_loads(tmp_path, url):
+    assert load_config(_write(tmp_path, f'[rustxng]\nurl = "{url}"\n')).rustxng.url == url
+
+
+_BAD_NAMES = ["", " ", "google ", " google", "wikipedia, google", "a,b", "a\tb ", "\t"]
+
+
+@pytest.mark.parametrize("name", _BAD_NAMES)
+def test_bad_engine_name_in_official_list_is_error(tmp_path, name):
+    text = f'[engines.official]\nsns = [{name!r}, "mastodon"]\n'.replace("'", '"')
+    with pytest.raises(ConfigError, match=r"engines\.official\.sns") as info:
+        load_config(_write(tmp_path, text))
+    assert repr(name) in str(info.value)
+
+
+@pytest.mark.parametrize("name", _BAD_NAMES)
+def test_bad_engine_name_in_scrape_list_is_error(tmp_path, name):
+    text = f'[engines.scrape]\ngeneral = ["google", {name!r}]\n'.replace("'", '"')
+    with pytest.raises(ConfigError, match=r"engines\.scrape\.general") as info:
+        load_config(_write(tmp_path, text))
+    assert repr(name) in str(info.value)
+
+
+@pytest.mark.parametrize("name", _BAD_NAMES)
+def test_bad_engine_name_in_unspecified_lists_is_error(tmp_path, name):
+    text = f'[engines]\nunspecified = ["wikipedia", {name!r}]\n'.replace("'", '"')
+    with pytest.raises(ConfigError, match=r"engines\.unspecified") as info:
+        load_config(_write(tmp_path, text))
+    assert repr(name) in str(info.value)
+    text = f'[engines]\nscrape_unspecified = ["google", {name!r}]\n'.replace("'", '"')
+    with pytest.raises(ConfigError, match=r"engines\.scrape_unspecified") as info:
+        load_config(_write(tmp_path, text))
+    assert repr(name) in str(info.value)
+
+
+def test_scrape_name_with_trailing_space_cannot_hide_from_the_overlap_check(tmp_path):
+    """never: 画面読み取りのエンジンを、オプションを付けていないのに呼ばない"""
+    text = (
+        '[engines.official]\ngeneral = ["wikipedia", "google"]\n'
+        '[engines.scrape]\ngeneral = ["google ", "bing"]\n'
+    )
+    with pytest.raises(ConfigError, match=r"engines\.scrape\.general.*'google '"):
+        load_config(_write(tmp_path, text))
+
+
 def test_scrape_list_may_be_empty_and_defaults_load(isolated_home, tmp_path):
     assert load_config(_write(tmp_path, "[engines.scrape]\nsns = []\n")).engines.scrape[Genre.SNS] == ()
     assert load_config(None).version == "default"

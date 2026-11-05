@@ -304,8 +304,38 @@ def _check_jev_endpoint(endpoint: str) -> None:
         raise error
 
 
+def _check_rustxng_url(url: str) -> None:
+    """rustxng.url が http か https の URL であることを確かめる（値はメッセージに書かない）。"""
+    error = ConfigError("rustxng.url は http か https の URL（ホスト名つき）でなければならない")
+    if "\\" in url or any(c.isspace() for c in url):
+        raise error
+    try:
+        parsed = urlsplit(url)
+        parsed.port  # noqa: B018  範囲外のポートは ValueError になる
+        hostname = parsed.hostname
+    except ValueError:
+        raise error from None
+    if parsed.scheme not in ("http", "https") or not hostname:
+        raise error
+
+
+def _check_engine_names(lists: list[tuple[str, tuple[str, ...]]]) -> None:
+    """エンジン名が空・空白だけ・前後に空白・カンマ入りでないことを確かめる。
+
+    接続口は名前をカンマで分けて空白を落としてから比べて送る。読み込み時の比べ方と
+    ずれないよう、そうなる名前は最初から拒む。
+    """
+    for where, names in lists:
+        for name in names:
+            if not name.strip() or name != name.strip() or "," in name:
+                raise ConfigError(
+                    f"{where} のエンジン名は空・空白だけ・前後に空白・カンマ入りにできない"
+                    f": {name!r}"
+                )
+
+
 def _check_engine_lists(engines: EnginesConfig) -> None:
-    """公式・未指定の一覧が空でなく、画面読み取りのエンジンを含まないことを確かめる。"""
+    """エンジン名の形を確かめる。公式・未指定の一覧は空でなく、画面読み取りの名前を含まない。"""
     scrape: set[str] = set(engines.scrape_unspecified)
     for names in engines.scrape.values():
         scrape.update(names)
@@ -314,6 +344,11 @@ def _check_engine_lists(engines: EnginesConfig) -> None:
         (f"engines.official.{genre.value}", names) for genre, names in engines.official.items()
     ]
     lists.append(("engines.unspecified", engines.unspecified))
+    scrape_lists: list[tuple[str, tuple[str, ...]]] = [
+        (f"engines.scrape.{genre.value}", names) for genre, names in engines.scrape.items()
+    ]
+    scrape_lists.append(("engines.scrape_unspecified", engines.scrape_unspecified))
+    _check_engine_names(lists + scrape_lists)
     for where, names in lists:
         if not names:
             raise ConfigError(f"{where} は空にできない")
@@ -340,6 +375,7 @@ def _build(raw: Mapping[str, Any], version: str) -> Config:
         expected_version=_str(rx, "rustxng", "expected_version"),
         timeout_seconds=_number(rx, "rustxng", "timeout_seconds"),
     )
+    _check_rustxng_url(rustxng.url)
 
     se = _section(raw, "search")
     search = SearchConfig(
