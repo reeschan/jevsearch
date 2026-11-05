@@ -418,6 +418,81 @@ def test_api_key_with_other_quoting_and_yaml_is_found(tmp_path, template):
     assert f"{target}:1: " in done.stderr
 
 
+FAKE_KEY = "tsk_" + "live_abc12defghijklmnopq"
+NO_DIGIT_KEY = "QhzKpWmRvXbTnLsJfYdGcEaUoIyHgFeD"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        'def connect({A}: "str" = "{V}"):',
+        '{A}: "str | None" = "{V}"',
+        "def __init__(self, {A}: 'SecretStr' = '{V}') -> None:",
+        'class C:\n    {A}: "Optional[str]" = "{V}"',
+    ],
+)
+@pytest.mark.parametrize("name", ["a.py", "a.pyi", "A.PY"])
+def test_value_after_a_string_annotation_is_found(tmp_path, template, name):
+    line = template.format(A=API, V=FAKE_KEY)
+    target = _write(tmp_path / name, line + "\n")
+    done = _run(target)
+    assert done.returncode == 1, line
+    assert FAKE_KEY not in done.stderr
+    assert "api_key の値" in done.stderr
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        '  {A}: "{N}"',
+        "  {A}: 'abc.def'",
+        'const c = {{ {A}: "{N}" }}',
+        'def connect({A}: "str" = "{V}"):',
+    ],
+)
+@pytest.mark.parametrize("name", ["a.yaml", "a.yml", "a.js", "a.ts", "a.toml", "notes"])
+def test_string_annotation_exception_is_python_only_so_quoted_values_are_found(
+    tmp_path, template, name
+):
+    line = template.format(A=API, N=NO_DIGIT_KEY, V=FAKE_KEY)
+    target = _write(tmp_path / name, line + "\n")
+    done = _run(target)
+    assert done.returncode == 1, (name, line)
+    assert f"{target}:1: api_key の値" in done.stderr
+    assert NO_DIGIT_KEY not in done.stderr
+    assert FAKE_KEY not in done.stderr
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        '{A}: "str | None" = None',
+        'def __init__(self, {A}: "SecretStr") -> None:',
+        '{A}: "Optional[str]" = None',
+        "{A}: 'SecretStr'",
+        '{A}: "pydantic.SecretStr | None"',
+        'def connect({A}: "str" = None):',
+        'def connect({A}: "str" = "") -> None:',
+    ],
+)
+@pytest.mark.parametrize("name", ["a.py", "a.pyi", "A.PY", "b.Pyi"])
+def test_string_annotation_without_a_value_is_allowed_in_python_files(tmp_path, template, name):
+    line = template.format(A=API)
+    done = _run(_write(tmp_path / name, line + "\n"))
+    assert done.returncode == 0, (name, line, done.stderr)
+
+
+def test_string_annotation_exception_needs_the_file_type():
+    module = _load_module()
+    line = f'{API}: "str | None"'
+    assert module._line_kinds(line, python=True) == []
+    assert module._line_kinds(line) == [module.KIND_JSON_KEY]
+    assert module._line_kinds(line, python=False) == [module.KIND_JSON_KEY]
+    assert module.KIND_JSON_KEY in module._line_kinds(f'{API}: "str" = "{FAKE_KEY}"', python=True)
+    assert [k for _, k in module.scan_bytes("a.yaml", line.encode())] == [module.KIND_JSON_KEY]
+    assert list(module.scan_bytes("a.py", line.encode())) == []
+
+
 def _load_module():
     spec = importlib.util.spec_from_file_location("check_secrets_under_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)

@@ -25,10 +25,13 @@
     `:` のあとの引用符なしの値（16文字以上の英数字・`_.-` で、数字を1つ以上含み、
     行末か `#` の注釈まで。YAML）、キーワード引数や代入（Python・TOML）で `api_key` に入れる
     文字列の値、添字への代入。型の注釈（`api_key: str`）は見つけない。
+    Python のファイル（拡張子 `.py`・`.pyi`。大文字小文字は問わない）に限り、
     引用符なしの `api_key:` のあとの引用符付きの文字列が、数字を含まず識別子を `.[],|` と空白で
-    つないだだけの型の式（`api_key: "str | None"`・`api_key: "Optional[str]"`）なら、
+    つないだだけの型の式（例えば `api_key: "str | None"`・`api_key: "Optional[str]"`）なら、
     文字列で書いた型の注釈として見つけない
-    （引用符付きのキー、つまり JSON や辞書の `"api_key"` では、この例外は使わない）
+    （引用符付きのキー、つまり JSON や辞書の `"api_key"`、Python 以外のファイル、
+    ファイルの種類が分からないときは、この例外を使わない。
+    注釈のあとに `= "値"` が続けば、その値は見つける）
   - Bearer トークン: `Bearer ` のあとに16文字以上の英数字・`-_.` が続く行
 値が `<...>`・`${...}`・`${{ ... }}`・`{{ ... }}` で包まれているものは、
 鍵ではなく書き込み用の穴や参照とみなす。
@@ -75,17 +78,21 @@ _COLON_QUOTED_RE = re.compile(rf"""{_KEY_FIELD}\s*:\s*(?P<value>{_QUOTED})""", r
 """`api_key` の `:` のあとの引用符付きの値（JSON・Python の辞書・YAML）。`qk` はキーの引用符。"""
 _ID = r"[A-Za-z_]+"
 _TYPE_EXPR_RE = re.compile(rf"[\[\s]*{_ID}(?:[\s.\[\],|]+{_ID})*[\]\s]*")
-"""文字列で書いた型の注釈（`"str | None"`・`"Optional[str]"`）。数字を含まない。"""
+"""文字列で書いた型の注釈（例えば `"str | None"`・`"Optional[str]"`）。数字を含まない。"""
 _COLON_BARE_RE = re.compile(
     rf"""{_KEY_FIELD}\s*:\s*(?P<value>[A-Za-z0-9_.\-]{{16,}})\s*(?:#.*)?$""", re.IGNORECASE
 )
 """`api_key` の `:` のあとの引用符なしの値（YAML）。数字を含むものだけを値とみなす。"""
 _ENV_CALL_RE = re.compile(rf"""["']{_KEY_NAME}["']\s*,\s*(?:default\s*=\s*)?(?P<value>{_QUOTED})""")
+_QUOTED_ANNOTATION = r"""(?:"[^"\n]*"|'[^'\n]*')"""
+"""文字列で書いた型の注釈（空でもよい）。"""
 _API_KEY_ASSIGN_RE = re.compile(
-    rf"""api_key["']?\]?(?:\s*:\s*[\w.\[\], |]+?)?\s*=(?!=)\s*(?P<value>{_QUOTED})""",
+    rf"""api_key["']?\]?(?:\s*:\s*(?:[\w.\[\], |]+?|{_QUOTED_ANNOTATION}))?"""
+    rf"""\s*=(?!=)\s*(?P<value>{_QUOTED})""",
     re.IGNORECASE,
 )
-"""`api_key` への代入・キーワード引数。型の注釈つきの代入と、添字（`cfg[...]`）への代入も許す。"""
+"""`api_key` への代入・キーワード引数。
+型の注釈（引用符付きの文字列も）つきの代入と、添字（`cfg[...]`）への代入も許す。"""
 _BEARER_RE = re.compile(r"bearer[ \t]+[a-z0-9\-_.]{16,}", re.IGNORECASE)
 _PLACEHOLDER_RE = re.compile(r"<[^<>]*>|\$\{.*\}|\{\{.*\}\}", re.DOTALL)
 """値の全体が `<...>`・`${...}`・`${{ ... }}`・`{{ ... }}` なら、鍵ではない。"""
@@ -131,11 +138,11 @@ def _is_key_name_constant(value: str) -> bool:
     return re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) is not None and "api_key" in value.lower()
 
 
-def _api_key_found(line: str) -> bool:
+def _api_key_found(line: str, *, python: bool = False) -> bool:
     for match in _COLON_QUOTED_RE.finditer(line):
         value = match.group("value")[1:-1]
-        if not match.group("qk") and _TYPE_EXPR_RE.fullmatch(value):
-            continue  # 引用符なしの `api_key` のあとの、文字列で書いた型の注釈
+        if python and not match.group("qk") and _TYPE_EXPR_RE.fullmatch(value):
+            continue  # Python の、引用符なしの `api_key` のあとの、文字列で書いた型の注釈
         if not _is_key_name_constant(value) and not _is_placeholder(value):
             return True
     for match in _COLON_BARE_RE.finditer(line):
@@ -149,8 +156,12 @@ def _api_key_found(line: str) -> bool:
     return False
 
 
-def _line_kinds(line: str) -> list[str]:
-    """1行から見つかった種類の一覧。"""
+def _is_python_file(path: str) -> bool:
+    return Path(path).suffix.lower() in (".py", ".pyi")
+
+
+def _line_kinds(line: str, *, python: bool = False) -> list[str]:
+    """1行から見つかった種類の一覧。`python` が真なら、文字列で書いた型の注釈を見つけない。"""
     if IGNORE_MARK in line:
         return []
     kinds: list[str] = []
@@ -158,7 +169,7 @@ def _line_kinds(line: str) -> list[str]:
         kinds.append(KIND_ENV_ASSIGN)
     if _env_call_found(line):
         kinds.append(KIND_ENV_CALL)
-    if _api_key_found(line):
+    if _api_key_found(line, python=python):
         kinds.append(KIND_JSON_KEY)
     if _BEARER_RE.search(line):
         kinds.append(KIND_BEARER)
@@ -180,8 +191,9 @@ def scan_bytes(path: str, data: bytes | None) -> Iterator[tuple[int, str]]:
         yield 1, KIND_FILENAME
     if data is None:
         return
+    python = _is_python_file(path)
     for number, line in enumerate(decode_text(data).splitlines(), start=1):
-        for kind in _line_kinds(line):
+        for kind in _line_kinds(line, python=python):
             yield number, kind
 
 
