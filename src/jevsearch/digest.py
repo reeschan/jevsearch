@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
 
+from jevsearch.models import JudgmentKey
 from jevsearch.ports import MemoryClient
 
 INDEX_FILE = "digest-index.json"
@@ -62,7 +63,7 @@ def _select_rows(topic: str, day: date, rows: Iterable[dict]) -> list[dict]:
             continue
         # 同じキーへの代入は挿入順を変えないので、最初に見えた順のまま行だけ新しくなる。
         latest[row.get("url")] = row
-    return [row for row in latest.values() if _judged(row, "relevant") is not False]
+    return [row for row in latest.values() if _judged(row, JudgmentKey.RELEVANT) is not False]
 
 
 def build_digest(topic: str, day: date, rows: Iterable[dict]) -> tuple[str, str, list[str]]:
@@ -89,13 +90,15 @@ def build_digest(topic: str, day: date, rows: Iterable[dict]) -> tuple[str, str,
     ]
     lines += [f"- {_one_line(q)}" for q in queries] or ["- （なし）"]
     lines += ["", "## 結果", ""]
+    result_lines = []
     for row in selected:
-        kind = _label(_judged(row, "type"))
-        genre = _label(_judged(row, "genre"))
-        lines.append(
+        kind = _label(_judged(row, JudgmentKey.TYPE))
+        genre = _label(_judged(row, JudgmentKey.GENRE))
+        result_lines.append(
             f"- [{kind}/{genre}] {_one_line(row.get('title', ''))} — {row.get('url', '')}"
             f"（{row.get('engine', '')}）"
         )
+    lines += result_lines or ["- （なし）"]
     tags = [_topic_tag(topic), "news", "radar-bot", "jevsearch", day_text]
     return title, "\n".join(lines) + "\n", tags
 

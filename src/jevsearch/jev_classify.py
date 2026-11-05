@@ -50,9 +50,13 @@ _GENRE_CRITERIA: dict[str, str] = {
     Genre.GENERAL: "It is about something general that fits none of the above.",
 }
 
+# noul の質問の選択肢の名前（はい・いいえ）。確率の答えもこの名前で引く。
+_NOUL_YES = "1"
+_NOUL_NO = "0"
+
 _RELEVANT_CRITERIA: dict[str, str] = {
-    "1": "It matches the intent of the query.",
-    "0": "It does not match the intent of the query.",
+    _NOUL_YES: "It matches the intent of the query.",
+    _NOUL_NO: "It does not match the intent of the query.",
 }
 
 
@@ -224,8 +228,8 @@ def _map_noul(answer: object, threshold: float) -> Judgment:
     probabilities = answer.get("probabilities")
     if probabilities is not None and not isinstance(probabilities, dict):
         return _unclassified()
-    if isinstance(probabilities, dict) and "1" in probabilities:
-        p = probabilities["1"]
+    if isinstance(probabilities, dict) and _NOUL_YES in probabilities:
+        p = probabilities[_NOUL_YES]
     else:
         p = answer.get("probability")
     if not _is_unit_number(p):

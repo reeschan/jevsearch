@@ -116,6 +116,11 @@ def test_別の日は_supersedes_なし(tmp_path):
     assert "https://a.example/1" not in memory.writes[1]["content"]
 
 
+def test_行が無いダイジェストは結果の節にも_なし_の行がある():
+    _, content, _ = build_digest("t", DAY, [])
+    assert content.split("## 結果")[1].strip() == "- （なし）"
+
+
 def test_relevant_が_false_の結果は本文に無い_null_は残す():
     rows = [
         _row("https://keep.example/1"),
@@ -322,7 +327,7 @@ def test_対象の行が0件でも_index_に前のダイジェストがあれば
     write = memory.writes[1]
     assert write["supersedes"] == first
     assert "- 件数: 0" in write["content"]
-    assert "- （なし）" in write["content"]
+    assert "- （なし）" in write["content"].split("## 結果")[1]
     assert "https://a.example/1" not in write["content"]
     assert "https://b.example/2" not in write["content"]
     index = json.loads((tmp_path / "digest-index.json").read_text(encoding="utf-8"))

@@ -67,6 +67,17 @@ class JudgedBy(StrEnum):
     JEV = "jev"
 
 
+class JudgmentKey(StrEnum):
+    """判定の種類。ClassifiedResult の属性名・結果ログの行のキー・評価記録・CSV の列名と同じ。"""
+
+    TYPE = "type"
+    GENRE = "genre"
+    RELEVANT = "relevant"
+
+
+JUDGMENT_KEYS: tuple[str, ...] = tuple(k.value for k in JudgmentKey)
+
+
 class SearchVerdict(StrEnum):
     """検索の総合結果。"""
 

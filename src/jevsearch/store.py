@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from jevsearch.models import (
+    JUDGMENT_KEYS,
     ClassifiedResult,
     JobRecord,
     JudgedBy,
     Judgment,
+    JudgmentKey,
     NormalizedQuery,
     Versions,
 )
@@ -26,9 +28,6 @@ SCHEMA = 1
 RESULTS_FILE = "results.jsonl"
 JOBS_FILE = "jobs.jsonl"
 EVAL_FILE = "eval.jsonl"
-
-# 結果の行で確信度の検査をかける判定のキー。
-_JUDGED_KEYS = ("type", "genre", "relevant")
 
 
 class StoreError(Exception):
@@ -92,9 +91,9 @@ def result_rows(
                 "engines": list(r.engines),
                 "matched": [str(m.value) if hasattr(m, "value") else str(m) for m in r.matched],
                 "published_date": r.published_date,
-                "type": _judgment(item.type),
-                "genre": _judgment(item.genre),
-                "relevant": _judgment(item.relevant),
+                JudgmentKey.TYPE: _judgment(item.type),
+                JudgmentKey.GENRE: _judgment(item.genre),
+                JudgmentKey.RELEVANT: _judgment(item.relevant),
                 "versions": _versions(versions),
             }
         )
@@ -203,7 +202,8 @@ class ResultStore:
                 f"結果の行 {index}: 取得日時（retrieved_at）が"
                 " ISO 8601 のオフセット付きでないため保存しない"
             )
-        for key in _JUDGED_KEYS:
+        # 確信度の検査は判定のキーすべてにかける。
+        for key in JUDGMENT_KEYS:
             j = row.get(key)
             if not isinstance(j, Mapping):
                 continue

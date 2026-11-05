@@ -1,6 +1,7 @@
 """共有の型（models.py）と差し替え口（ports.py）の名前・形を固定するテスト。"""
 
 import dataclasses
+import datetime
 import re
 import socket
 from enum import StrEnum
@@ -10,6 +11,7 @@ import pytest
 
 from jevsearch import models, ports
 from jevsearch.models import JobState, Outcome
+from jevsearch.store import result_rows
 
 MMD = Path(__file__).resolve().parent.parent / "docs/specs/statechart/jevsearch-job.mmd"
 
@@ -111,6 +113,7 @@ ENUMS = {
         "OTHER": "other",
     },
     "JudgedBy": {"RULE": "rule", "JEV": "jev"},
+    "JudgmentKey": {"TYPE": "type", "GENRE": "genre", "RELEVANT": "relevant"},
     "SearchVerdict": {
         "FAILED": "failed",
         "NO_RESULTS": "no_results",
@@ -189,6 +192,39 @@ def test_dataclass_fields(name):
     assert dataclasses.is_dataclass(cls)
     assert cls.__dataclass_params__.frozen
     assert [f.name for f in dataclasses.fields(cls)] == DATACLASSES[name]
+
+
+def test_judgment_keys_match_classified_result_and_store_row():
+    """JudgmentKey の値は、ClassifiedResult の判定の属性名と、結果ログの行の判定のキーに一致する。"""
+    judgment_fields = {
+        f.name for f in dataclasses.fields(models.ClassifiedResult) if f.type in ("Judgment", models.Judgment)
+    }
+    keys = {k.value for k in models.JudgmentKey}
+    assert keys == judgment_fields
+    assert models.JUDGMENT_KEYS == tuple(k.value for k in models.JudgmentKey)
+
+    now = datetime.datetime(2026, 11, 3, 12, 0, tzinfo=datetime.UTC)
+    result = models.SearchResult(
+        url="https://example.com/1",
+        title="t",
+        snippet="s",
+        engine="e",
+        published_date=None,
+        retrieved_at=now,
+        engines=("e",),
+        matched=(models.Lang.EN,),
+    )
+    judgment = models.Judgment("x", models.JudgedBy.RULE, 1.0)
+    item = models.ClassifiedResult("r01", result, judgment, judgment, judgment)
+    versions = models.Versions("c", "d", "r", "j", "x")
+    norm = models.NormalizedQuery("q", "q", None, "d")
+    (row,) = result_rows(
+        job_id="j", query="q", query_norm=norm, topic=None, items=[item], versions=versions
+    )
+    row_judgment_keys = {
+        key for key, value in row.items() if isinstance(value, dict) and set(value) == {"value", "by", "confidence"}
+    }
+    assert row_judgment_keys == keys
 
 
 def test_reasons_defaults():

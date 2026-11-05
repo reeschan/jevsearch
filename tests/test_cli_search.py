@@ -774,7 +774,7 @@ def test_digest_drops_a_url_that_a_later_search_judges_not_relevant(tmp_path):
     assert newest["supersedes"] == "M1"
     assert url not in newest["content"]
     assert "- 件数: 0" in newest["content"]
-    assert "- （なし）" in newest["content"]
+    assert "- （なし）" in newest["content"].split("## 結果")[1]
     job = _jobs(tmp_path)[1]
     assert job["outcome"] == "saved"
     assert job["reasons"]["digest_failure"] is None

@@ -12,19 +12,18 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime
 
 from jevsearch.models import (
+    JUDGMENT_KEYS,
     ClassifiedResult,
     EngineFailure,
     JevReport,
     JudgedBy,
     Judgment,
+    JudgmentKey,
     Lang,
     ResultType,
     SearchResult,
 )
 from jevsearch.ports import Classifier
-
-# 判定の種類（評価記録・比較・CSV の列名と同じ）。
-JUDGMENT_KEYS: tuple[str, ...] = ("type", "genre", "relevant")
 
 # 未分類の件数のキー（評価記録・集計に書く名前）。
 UNCLASSIFIED_KEY = "unclassified"
@@ -43,12 +42,8 @@ CSV_COLUMNS: tuple[str, ...] = (
     "title",
     "snippet",
     "lang",
-    "type",
-    "genre",
-    "relevant",
-    "label_type",
-    "label_genre",
-    "label_relevant",
+    *JUDGMENT_KEYS,
+    *(f"label_{key}" for key in JUDGMENT_KEYS),
 )
 
 
@@ -270,7 +265,7 @@ def batch_vs_single(
         }
         for key in JUDGMENT_KEYS
     }
-    for s in stats["type"].values():
+    for s in stats[JudgmentKey.TYPE].values():
         s["rule_decided"] = 0
     batch_classifier = make_classifier(batch_size)
     single_classifier = make_classifier(1)
@@ -289,7 +284,7 @@ def batch_vs_single(
                 a = getattr(batch_item, key).value
                 b = getattr(single_item, key).value
                 s = stats[key][lang]
-                if key == "type" and JudgedBy.RULE in (
+                if key == JudgmentKey.TYPE and JudgedBy.RULE in (
                     batch_item.type.by,
                     single_item.type.by,
                 ):
@@ -347,9 +342,9 @@ def sample_csv(rows: Iterable[dict], n: int, seed: int = 0) -> str:
                 _safe_text(row["title"]),
                 _safe_text(row["snippet"]),
                 _lang_of(row["title"]),
-                _cell(row.get("type")),
-                _cell(row.get("genre")),
-                _cell(row.get("relevant")),
+                _cell(row.get(JudgmentKey.TYPE)),
+                _cell(row.get(JudgmentKey.GENRE)),
+                _cell(row.get(JudgmentKey.RELEVANT)),
                 "",
                 "",
                 "",
@@ -364,7 +359,7 @@ _FALSE_WORDS = {"false", "0", "no", "n"}
 
 def _normalize_label(key: str, text: str) -> str:
     text = text.strip().lower()
-    if key == "relevant":
+    if key == JudgmentKey.RELEVANT:
         if text in _TRUE_WORDS:
             return "true"
         if text in _FALSE_WORDS:
