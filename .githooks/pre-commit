@@ -1,0 +1,8 @@
+#!/bin/sh
+# コミット前に、API キーが入ったファイルを検査する。見つかったらコミットを止める。
+# 有効にする: git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if command -v python >/dev/null 2>&1; then
+    exec python scripts/check_secrets.py
+fi
+exec python3 scripts/check_secrets.py

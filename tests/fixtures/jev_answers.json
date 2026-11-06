@@ -1,0 +1,49 @@
+{
+  "_note": "合成。本物の Jev の応答を録ったら差し替える。3件分（r01〜r03）の type・genre・relevant と query_genre の答え。確信度 0.54（しきい値未満）・0.55（境界）・0.9 を含む。",
+  "answers": {
+    "type_r01": {
+      "choice": "blog",
+      "confidence": 0.9,
+      "probabilities": {"blog": 0.9, "news": 0.05, "other": 0.05}
+    },
+    "type_r02": {
+      "choice": "news",
+      "confidence": 0.55,
+      "probabilities": {"news": 0.55, "blog": 0.45}
+    },
+    "type_r03": {
+      "choice": "paper",
+      "confidence": 0.54,
+      "probabilities": {"paper": 0.54, "docs": 0.46}
+    },
+    "genre_r01": {
+      "choice": "tech",
+      "confidence": 0.9,
+      "probabilities": {"tech": 0.9, "general": 0.1}
+    },
+    "genre_r02": {
+      "choice": "sns",
+      "confidence": 0.54,
+      "probabilities": {"sns": 0.54, "news": 0.46}
+    },
+    "genre_r03": {
+      "choice": "paper",
+      "confidence": 0.55,
+      "probabilities": {"paper": 0.55, "tech": 0.45}
+    },
+    "relevant_r01": {
+      "probabilities": {"1": 0.9, "0": 0.1}
+    },
+    "relevant_r02": {
+      "probabilities": {"1": 0.52, "0": 0.48}
+    },
+    "relevant_r03": {
+      "probabilities": {"1": 0.1, "0": 0.9}
+    },
+    "query_genre": {
+      "choice": "tech",
+      "confidence": 0.9,
+      "probabilities": {"tech": 0.9, "general": 0.1}
+    }
+  }
+}

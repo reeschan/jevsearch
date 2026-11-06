@@ -1,0 +1,31 @@
+# ドメイン規則（同梱データ）。内容を変えたら version を上げる（記録に残る）。
+# 書き方は3種類。完全一致は、サブドメインにも当たる（例えば arxiv.org は export.arxiv.org に当たる）。
+# 先頭の `*.` は、その下のホストだけに当たる（例えば *.hatenablog.com）。
+# 先頭ラベルは、最初のラベルで当てる（例えば docs.* は docs.python.org に当たる）。
+# 規則は上から順に当たる。先に書いた規則が勝つ。
+version = "2026-11-03.2"
+
+# docs は先頭に置く。docs.* は github.com などの下にも来るので、先に当てて docs にする（例えば docs.github.com は repo にしない）。
+[[rules]]
+type = "docs"
+domains = ["developer.mozilla.org", "learn.microsoft.com", "docs.*"]
+
+[[rules]]
+type = "paper"
+domains = ["arxiv.org", "doi.org", "semanticscholar.org", "openalex.org"]
+
+[[rules]]
+type = "repo"
+domains = ["github.com", "gitlab.com"]
+
+[[rules]]
+type = "sns"
+domains = ["mastodon.*", "lemmy.*", "x.com"]
+
+[[rules]]
+type = "blog"
+domains = ["qiita.com", "zenn.dev", "note.com", "medium.com", "*.hatenablog.com", "dev.to"]
+
+[[rules]]
+type = "news"
+domains = ["news.google.com", "wikinews.org", "*.wikinews.org"]

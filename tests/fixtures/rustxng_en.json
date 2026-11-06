@@ -1,0 +1,27 @@
+{
+  "_note": "合成。本物の RustXNG の応答を録ったら差し替える。結果2件。1件目の URL は rustxng_ja.json の2件目と同じ（エンジンは別）。",
+  "query": "quantum computing introduction",
+  "number_of_results": 2,
+  "results": [
+    {
+      "url": "https://example.org/shared/quantum-paper",
+      "title": "Quantum error correction",
+      "content": "An overview of error correcting codes.",
+      "engine": "crossref",
+      "publishedDate": "2026-04-20T00:00:00",
+      "score": 2.5
+    },
+    {
+      "url": "https://example.org/en/quantum-docs",
+      "title": "Quantum computing documentation",
+      "content": "Getting started guide.",
+      "engine": "github",
+      "publishedDate": null,
+      "score": 1.5
+    }
+  ],
+  "answers": [],
+  "infoboxes": [],
+  "suggestions": [],
+  "unresponsive_engines": []
+}

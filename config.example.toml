@@ -1,0 +1,71 @@
+# jevsearch の設定ファイルの例。ここに書いてある値が既定値。
+# 置き場所: 環境変数 JEVSEARCH_CONFIG → ~/.config/jevsearch/config.toml（どちらも無ければ既定値）。
+# 書かなかったキーは既定値で埋まる。
+#
+# この設定ファイルに秘密は書かない（api_key・token・secret・password を含むキー名は読み込みで拒む）。
+# Jev の API キーは、環境変数 TYPESAFE_API_KEY か ~/.config/typesafe/credentials.json から読む。
+
+# 検索エンジンの接続先（RustXNG）
+[rustxng]
+url = "http://127.0.0.1:29483"   # http か https の URL（ホスト名つき）
+expected_version = "0.26.0"   # 結果ログに versions.rustxng として記録する値（接続先の版は調べない）
+timeout_seconds = 20
+
+[search]
+max_results = 50              # 1ジョブの合計の上限（1〜200）。--max で変えられる
+allow_scrape = false          # 画面読み取りのエンジンを許す。CLI の --allow-scrape も要る（二重の許可）
+
+# ジャンルごとの公式エンジン（キーは paper / tech / news / sns / blog / general）
+# 空の一覧と、画面読み取りの一覧にある名前は入れられない（読み込みで拒む）
+# エンジン名は空・空白だけ・前後に空白・カンマ入りにできない（scrape の一覧も同じ）
+[engines.official]
+paper = ["arxiv", "crossref", "semantic scholar", "openalex", "pubmed", "europepmc"]
+tech = ["github", "stack overflow", "hackernews", "mdn", "microsoft_learn", "gitlab", "crates.io", "npm"]
+news = ["google news", "hackernews", "wikinews"]
+sns = ["mastodon", "lemmy", "tootfinder"]
+blog = ["wiby"]
+general = ["wikipedia", "mwmbl"]
+
+# 画面読み取りのエンジン（allow_scrape と --allow-scrape の両方があるときだけ使う）
+[engines.scrape]
+paper = ["google_scholar"]
+tech = ["pypi", "lib_rs"]
+news = ["bing news"]
+sns = []
+blog = ["searchmysite", "neocities"]
+general = ["google", "bing", "brave", "duckduckgo", "mojeek", "yahoo japan"]
+
+# ジャンル未指定のときの一覧
+# （API キーが要るエンジン core・braveapi・marginalia・springer は既定に入れない）
+[engines]
+unspecified = ["wikipedia", "mwmbl", "github", "stack overflow", "hackernews", "arxiv", "semantic scholar", "openalex"]
+scrape_unspecified = ["google", "bing", "brave", "duckduckgo"]
+
+# Jev（分類モデル）
+[jev]
+model = "jev-1.14.0"          # 版を固定している。ほかの値は拒む
+endpoint = "https://api.typesafe.ai/v1/systemone"   # https で api.typesafe.ai のみ許す（API キーを送る先のため）
+batch_size = 25               # 1回に送る結果の件数（20〜30）
+threshold = 0.55              # 確信度がこれ未満の判定は未分類にする（0〜1）
+max_request_tokens = 64000    # 1リクエストの入力トークン数の見積もりの上限
+daily_request_limit = 200     # 1日のリクエスト数の上限。0 以下で上限なし
+max_rate_retries = 3          # 429・529 のときのやり直しの最大回数
+timeout_seconds = 120
+# price_per_mtok_input = 0.0  # 100万トークンあたりの単価（費用の目安用）。省略すると費用は null
+# price_per_mtok_output = 0.0
+
+[storage]
+dir = "~/.local/share/jevsearch"   # 結果ログ・ジョブの記録などの置き場所（~ は展開される）
+
+# 共有メモリ（ダイジェストの書き先）
+[memory]
+enabled = true
+url = "http://127.0.0.1:7820/mcp"
+scope = "global"
+source_agent = "claude"
+
+# 用語辞書とドメイン規則の場所。省略すると同梱のものを使う。
+# [dictionary]
+# path = "~/.config/jevsearch/dictionary.toml"
+# [rules]
+# path = "~/.config/jevsearch/domain_rules.toml"
